@@ -76,6 +76,8 @@ class FakeElement {
   }
   set className(v) { this.setAttribute('class', v); }
   get className() { return this.getAttribute('class') || ''; }
+  get parentNode() { return this.parent; }
+  get firstChild() { return this.children[0] || null; }
   set innerHTML(html) {
     this.children = [];
     this._textContent = '';
@@ -981,6 +983,86 @@ for (const [ref, label] of refsToCheck) {
         `(got "${rebuilt.textContent}", want "${sVar}")`);
 
     ctx.clearAllOverrides();
+}
+
+// ---- Verse-number gutter alignment ----
+//
+// User-reported bug: verse numbers in the right gutter often appeared
+// "way below" the passuk that started the verse. Root cause:
+// layoutGutter() positioned each entry at `line.offsetTop`, which is
+// computed against the line's offsetParent -- NOT the gutter (the only
+// `position: relative` ancestor in the column tree). The two reference
+// frames diverge by the cumulative top offset of every positioned
+// ancestor between .sColLines and the gutter, so the deeper a line was
+// in the column, the more the gutter entry drifted away from it.
+//
+// Fix: layoutGutter() now uses getBoundingClientRect() on both the
+// gutter and the line and pins each entry to (lineRect.top -
+// gutterRect.top), which is independent of the offsetParent chain.
+// When getBoundingClientRect() isn't available (headless DOM), it
+// falls back to offsetTop -- still imperfect, but it's the same
+// behavior the engine had before the fix, and the test harness
+// doesn't have flexbox/layout anyway.
+{
+    // The test harness's headless DOM doesn't run flexbox, so an
+    // earlier render may not have populated the gutter/lines tree.
+    // Build the minimal structure layoutGutter() needs ourselves:
+    // a .sColGutter (positioned ancestor) and a .sColLines holding a
+    // .sLine. The test focuses on the rect-math fix, not on exercising
+    // the full column packer.
+    const gutter = ctx.document.createElement('div');
+    gutter.className = 'sColGutter';
+    const lns = ctx.document.createElement('div');
+    lns.className = 'sColLines';
+    const targetLine = ctx.document.createElement('div');
+    targetLine.className = 'sLine';
+    lns.appendChild(targetLine);
+    ctx.document.body.appendChild(gutter);
+    ctx.document.body.appendChild(lns);
+
+    // Stub getBoundingClientRect to drive the new code path. We pretend
+    // the gutter sits at y=100, and a known line sits at y=240; the
+    // entry for that line should land at top: 140px (240 - 100).
+    gutter.getBoundingClientRect = function () {
+        return { top: 100, bottom: 900, left: 0, right: 30,
+                 width: 30, height: 800 };
+    };
+    targetLine.getBoundingClientRect = function () {
+        return { top: 240, bottom: 280, left: 30, right: 600,
+                 width: 570, height: 40 };
+    };
+    // Synthesize a tiny gutterMarks list pointing at our stubbed line
+    // and run layoutGutter directly (it's exported on ctx). The first
+    // entry should then have top: 140px.
+    const stubMarks = [{
+        lineIdx: 0, verse: 1, chapter: 1, aliyah: null,
+        wordEl: targetLine.firstChild || targetLine,
+    }];
+    if (!stubMarks[0].wordEl ||
+        !stubMarks[0].wordEl.parentNode ||
+        stubMarks[0].wordEl.parentNode !== targetLine) {
+        // wordEl must be a child of targetLine for the parent-walk in
+        // layoutGutter to find it. Use the line itself wrapped in a
+        // span if the line is empty in this test column.
+        const fakeWord = ctx.document.createElement('span');
+        fakeWord.className = 'word';
+        targetLine.appendChild(fakeWord);
+        stubMarks[0].wordEl = fakeWord;
+    }
+    ctx.layoutGutter(gutter, lns, stubMarks);
+    const stubbed = gutter.getElementsByClassName('sGutterEntry');
+    assert(stubbed.length === 1,
+        `layoutGutter stub produced 1 entry (got ${stubbed.length})`);
+    const topPx = parseFloat(stubbed[0].style.top);
+    assert(topPx === 140,
+        `entry top = lineRect.top - gutterRect.top ` +
+        `(got ${topPx}px, expected 140px)`);
+
+    // Remove the stubs so the next test block (or refit) doesn't see
+    // bogus rects. Plain `delete` is enough on the per-element
+    // overrides we set above.
+    delete gutter.getBoundingClientRect;
+    delete targetLine.getBoundingClientRect;
 }
 
 // ---- Megilat Esther data integrity ----

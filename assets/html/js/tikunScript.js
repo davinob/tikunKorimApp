@@ -786,11 +786,20 @@ function renderColumn(idx, scrollToTokenIdx) {
                     }
                     applyKashidaSpacing(lns2);
                 }
-                var gut = body.querySelector('.sColGutter');
-                var lns = body.querySelector('.sColLines');
-                if (gut && lns && lns.__gutterMarks) {
-                    layoutGutter(gut, lns, lns.__gutterMarks);
-                }
+            }
+            // ALWAYS re-pin gutter marks after fonts settle, even when
+            // the font size did NOT change. The first layoutGutter()
+            // call in layoutLinesFromOCR() runs before webfonts arrive,
+            // so the line-rect measurements include the system Hebrew
+            // fallback's larger metrics; once DrugulinCLM finishes
+            // loading, the .sLine offsets shift but the gutter entries
+            // would otherwise still point at the pre-font-load
+            // positions. The user sees this as verse numbers drifting
+            // BELOW the matching passuk further down the column.
+            var gut = body.querySelector('.sColGutter');
+            var lns = body.querySelector('.sColLines');
+            if (gut && lns && lns.__gutterMarks) {
+                layoutGutter(gut, lns, lns.__gutterMarks);
             }
         } else {
             // Engine-fallback path: rebuild lines with the now-correct
@@ -1897,11 +1906,36 @@ function layoutGutter(gutter, lines, marks) {
         }
         bucket.marks.push(m);
     }
+    // The gutter entries are absolutely positioned inside .sColGutter
+    // (the only `position: relative` ancestor), so their `top` must be
+    // expressed in the GUTTER's coordinate system. .sLine lives in
+    // .sColLines, a sibling of the gutter inside .sColGrid, and its
+    // `offsetTop` is measured against whichever ancestor is positioned
+    // -- which is NOT the gutter. Using offsetTop directly therefore
+    // pinned every verse number to a y that referred to a different
+    // origin, so the numbers drifted further down the deeper the line
+    // was in the column (the user sees the number "way below" the
+    // related passuk). Compute the offset via getBoundingClientRect so
+    // the math is independent of the offsetParent chain. Fall back to
+    // offsetTop in headless / non-DOM-measure environments (test
+    // harness) where getBoundingClientRect returns no useful number.
+    var gutterRect = null;
+    if (gutter && typeof gutter.getBoundingClientRect === 'function') {
+        try { gutterRect = gutter.getBoundingClientRect(); }
+        catch (e) { gutterRect = null; }
+    }
     for (var gi = 0; gi < byLine.length; gi++) {
         var b = byLine[gi];
         var entry = document.createElement('div');
         entry.className = 'sGutterEntry';
-        entry.style.top = b.line.offsetTop + 'px';
+        var topPx = b.line.offsetTop;
+        if (gutterRect && typeof b.line.getBoundingClientRect === 'function') {
+            try {
+                var lineRect = b.line.getBoundingClientRect();
+                topPx = lineRect.top - gutterRect.top;
+            } catch (e) {}
+        }
+        entry.style.top = topPx + 'px';
         // The aliyah label (if any) on the FIRST mark applies to the
         // line as a whole — render it once, above any verse numbers.
         for (var mi = 0; mi < b.marks.length; mi++) {

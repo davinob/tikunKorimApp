@@ -32,7 +32,7 @@ class UpdateService {
   // Bumped when the on-device asset shape changes (new files, schema
   // changes etc). When this number increases, existing local content is
   // cleared on launch and re-bootstrapped from bundled assets.
-  static const int _manifestVersion = 74;
+  static const int _manifestVersion = 75;
 
   Future<void> initialize() async {
     try {
