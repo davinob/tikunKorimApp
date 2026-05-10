@@ -1,4 +1,4 @@
-package com.davinob.tikun_korim
+package learn.tikun
 
 import io.flutter.embedding.android.FlutterActivity
 
