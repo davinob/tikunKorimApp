@@ -79,6 +79,10 @@ Without a `key.properties` file, release builds fall back to the
 debug signing config (fine for local testing, not uploadable to
 the Play Store).
 
+## Privacy
+
+See **[Privacy Policy](PRIVACY_POLICY.md)** (same file on GitHub — use this URL in Google Play Console after you push).
+
 ## License
 
 This project bundles the GPL-2 licensed Culmus Hebrew typefaces
