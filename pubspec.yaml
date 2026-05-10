@@ -2,7 +2,7 @@ name: tikun_korim
 description: Tikun Korim - Learn Torah reading with toggleable vowels and cantillation
 publish_to: 'none'
 
-version: 1.1.4+6
+version: 1.2.0+7
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
