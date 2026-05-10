@@ -81,6 +81,16 @@ var ATTR = { full: 'data-f', nikud: 'data-n', taam: 'data-t', stam: 'data-s' };
 // .sLine rows in the column-grid layout.
 var VERSE_OV = {};   // { "1:21": { nikud: 'on'|'off', taam: 'on'|'off' } }
 
+// Per-word overrides survive column re-packs (which destroy and rebuild
+// the .word DOM nodes) by living in this map, keyed by the stable
+// data-tok-idx that makeWordEl stamps on every word. Without this,
+// tapping a word cycled the inline data-ov-* attribute on a node that
+// was about to be thrown away by repackPreservingPosition(), so the
+// next render produced a fresh node with no override and the user's
+// tap appeared to do nothing. makeWordEl re-applies the stored
+// override after creating the node so the rendered mode matches.
+var WORD_OV = {};   // { "<tokIdx>": { nikud: 'on'|'off', taam: 'on'|'off' } }
+
 function verseKeyFromWord(span) {
     var v = span.getAttribute('data-verse');
     var c = span.getAttribute('data-chapter');
@@ -303,6 +313,7 @@ function toggleTaam() {
 }
 function clearAllOverrides() {
     VERSE_OV = {};
+    WORD_OV = {};
     var words = document.getElementsByClassName('word');
     for (var j = 0; j < words.length; j++) {
         words[j].removeAttribute('data-ov-nikud');
@@ -341,15 +352,25 @@ function applyModeToWord(wordEl, mode) {
     var inh = inheritedAxesForWord(wordEl);
     var wantNikud = (mode === 'full');
     var wantTaam  = (mode === 'taam' || mode === 'full');
+    var ti = wordEl.getAttribute('data-tok-idx');
+    var rec = (ti != null) ? (WORD_OV[ti] || {}) : null;
     if (wantNikud === inh.nikud) {
         wordEl.removeAttribute('data-ov-nikud');
+        if (rec) delete rec.nikud;
     } else {
         wordEl.setAttribute('data-ov-nikud', wantNikud ? 'on' : 'off');
+        if (rec) rec.nikud = wantNikud ? 'on' : 'off';
     }
     if (wantTaam === inh.taam) {
         wordEl.removeAttribute('data-ov-taam');
+        if (rec) delete rec.taam;
     } else {
         wordEl.setAttribute('data-ov-taam', wantTaam ? 'on' : 'off');
+        if (rec) rec.taam = wantTaam ? 'on' : 'off';
+    }
+    if (ti != null) {
+        if (rec.nikud || rec.taam) WORD_OV[ti] = rec;
+        else delete WORD_OV[ti];
     }
     applyDisplayToWord(wordEl, getGlobals());
     syncOverrideHighlights();
@@ -387,6 +408,8 @@ function cycleWordMode(wordEl) {
 function clearWordOverride(wordEl) {
     wordEl.removeAttribute('data-ov-nikud');
     wordEl.removeAttribute('data-ov-taam');
+    var ti = wordEl.getAttribute('data-tok-idx');
+    if (ti != null) delete WORD_OV[ti];
     // Drop the per-word override and re-pack so the line and
     // last-line justification snap back to the inherited mode.
     repackPreservingPosition();
@@ -853,12 +876,27 @@ function makeWordEl(tk, tokIdx) {
         // setumah at the bottom of col 179) land the user at the TOP
         // of the column, where the previous parasha's text still is.
         w.setAttribute('data-tok-idx', String(tokIdx));
+        // Restore any per-word override that was set BEFORE the most
+        // recent column re-pack. Without this, tapping a word to
+        // cycle stam <-> taam <-> full would write the override on
+        // a span that was about to be destroyed by
+        // repackPreservingPosition(); the freshly-built span had no
+        // override, so the word reverted to its inherited mode and
+        // the tap appeared to do nothing. WORD_OV survives the
+        // rebuild because it's a JS object on the renderer scope.
+        var ov = WORD_OV[String(tokIdx)];
+        if (ov) {
+            if (ov.nikud) w.setAttribute('data-ov-nikud', ov.nikud);
+            if (ov.taam)  w.setAttribute('data-ov-taam',  ov.taam);
+        }
     }
     // Initial render: route through applyDisplayToWord so the
     // styLetter split happens at construction time (not just on
-    // toggle). The default mode is the global state, which on first
-    // render is whatever the user last picked (or the app default).
-    if (typeof tk.styLetter === 'string') {
+    // toggle), AND so any restored data-ov-* override is honored.
+    // The default mode is the global state, which on first render is
+    // whatever the user last picked (or the app default).
+    var hasOv = w.hasAttribute('data-ov-nikud') || w.hasAttribute('data-ov-taam');
+    if (typeof tk.styLetter === 'string' || hasOv) {
         applyDisplayToWord(w, getGlobals());
     } else {
         w.textContent = tk.f;

@@ -923,6 +923,66 @@ for (const [ref, label] of refsToCheck) {
     }
 }
 
+// ---- Per-word override survives a column re-pack ----
+//
+// User-reported bug: after the toggle handlers were switched from
+// refreshAllWords() to repackPreservingPosition(), tapping a word
+// to cycle stam <-> taam <-> full did nothing in the live app.
+// Root cause: the per-word override was only stored as a DOM
+// attribute on the .word span, and repack rebuilds the column,
+// destroying that span. The freshly-built span had no override,
+// so the resolved mode reverted to the inherited (global) one.
+// Fix: persist per-word overrides in the WORD_OV map keyed by
+// data-tok-idx (the same key the renderer uses to scroll the
+// anchor word back into view), and re-stamp the data-ov-* attrs
+// on the new spans inside makeWordEl().
+//
+// This block exercises the survival contract directly.
+{
+    // The previous repack-stub block may have consumed/torn down the
+    // column DOM. Build a fresh word span via the same helper the
+    // renderer uses, and stamp a tok-idx so WORD_OV has a key.
+    let firstWordTokIdx = -1;
+    for (let i = 0; i < TORAH.tokens.length; i++) {
+        if (TORAH.tokens[i].k === 'w') { firstWordTokIdx = i; break; }
+    }
+    assert(firstWordTokIdx >= 0, 'have at least one word token to test');
+    const beforeWord = ctx.makeWordEl(TORAH.tokens[firstWordTokIdx], firstWordTokIdx);
+    const tokIdx = beforeWord.getAttribute('data-tok-idx');
+    assert(tokIdx === String(firstWordTokIdx),
+        'word has data-tok-idx (precondition for WORD_OV)');
+
+    ctx.clearAllOverrides();
+    assert(Object.keys(ctx.WORD_OV).length === 0,
+        'WORD_OV starts empty after clearAllOverrides');
+
+    const next = ctx.cycleWordMode(beforeWord);
+    assert(next === 'stam',
+        `tap from full lands on stam (got "${next}")`);
+    assert(ctx.WORD_OV[tokIdx] &&
+           ctx.WORD_OV[tokIdx].nikud === 'off' &&
+           ctx.WORD_OV[tokIdx].taam === 'off',
+        `WORD_OV["${tokIdx}"] persisted as {nikud:off, taam:off}`);
+
+    // Force a fresh build of the same word from scratch (this is
+    // exactly what repackPreservingPosition() does in the real app
+    // when a measurable readStage is present, just scoped to one
+    // word for test simplicity). Use the headless makeWordEl path
+    // so we can read the resulting attributes without depending on
+    // getBoundingClientRect.
+    const tk = TORAH.tokens[Number(tokIdx)];
+    const rebuilt = ctx.makeWordEl(tk, Number(tokIdx));
+    assert(rebuilt.getAttribute('data-ov-nikud') === 'off' &&
+           rebuilt.getAttribute('data-ov-taam') === 'off',
+        'rebuilt .word has data-ov-* restored from WORD_OV');
+    const sVar = tk.s != null ? tk.s : tk.f;
+    assert(rebuilt.textContent === sVar,
+        `rebuilt .word renders stam variant after re-pack ` +
+        `(got "${rebuilt.textContent}", want "${sVar}")`);
+
+    ctx.clearAllOverrides();
+}
+
 // ---- Megilat Esther data integrity ----
 //
 // Esther is shipped as a sibling dataset (esther.json + esther_layout.json)
