@@ -1,0 +1,9 @@
+# Copy this file to `key.properties` in the same directory and fill
+# in your release-keystore credentials. The real `key.properties` is
+# gitignored — never commit credentials to a public repo.
+#
+# `storeFile` is resolved relative to the `android/app/` directory.
+storeFile=../../path/to/your-release-key.keystore
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=YOUR_KEY_ALIAS
+keyPassword=YOUR_KEY_PASSWORD

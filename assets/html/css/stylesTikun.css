@@ -1,0 +1,807 @@
+/* Bundled Hebrew fonts (Culmus project, GPL-2). Drugulin is the
+   traditional Tikun Korim / printed-Sefer-Torah typeface used by Israeli
+   sefer publishers; KeterYG is a sans-serif Hebrew typeface used as a
+   fallback for headings. */
+@font-face {
+    font-family: 'DrugulinCLM';
+    src: url('../fonts/DrugulinCLM-Bold.otf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'StamAshkenazCLM';
+    src: url('../fonts/StamAshkenazCLM.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'KeterYG';
+    src: url('../fonts/KeterYG-Medium.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+html {
+    /* Reading-page font is intentionally smaller now: a real Torah-scroll
+       column has 42 lines, and we want as many of those lines as possible
+       visible on a phone screen at once (target ~15-18). */
+    --fontSizeIvrit: 16px;
+    --fontSizeIvritIndex: 22px;     /* index/menu pages stay larger */
+    --colorPrimary: #31567f;
+    --colorAccent: #2d68b0;
+    --colorBg: #fbf9f3;
+    --colorParchment: #fdf6e3;
+    --colorVerseNum: #b07b2d;
+    --colorMarker: #8a6a2e;
+    --colorScrollInk: #1a1410;
+    --colColumnPaddingX: 12px;
+    --colGutterWidth: 2.4em;
+    --torahFontStack: 'DrugulinCLM', 'Ezra SIL SR', 'David CLM', 'SBL Hebrew', serif;
+    --uiFontStack: 'KeterYG', 'Ezra SIL SR', 'David CLM', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--colorBg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* ======== Intro page ======== */
+.theBodyIntro { height: 100vh; display: flex; align-items: center; justify-content: center; }
+.introWrap { text-align: center; }
+.introTitle {
+    font-size: 42px; color: var(--colorPrimary); font-weight: bold;
+    font-family: var(--torahFontStack);
+}
+.introSub { font-size: 18px; color: #555; margin-top: 8px; }
+.introLoader { margin-top: 30px; }
+.introSpinner {
+    width: 36px; height: 36px;
+    border: 4px solid #ddd; border-top: 4px solid var(--colorPrimary);
+    border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.introMsg { margin-top: 12px; color: #888; font-size: 14px; }
+
+/* ======== Index page ======== */
+.theBodyMain { direction: rtl; padding-bottom: 40px; }
+
+.topBar {
+    background: var(--colorPrimary); color: #fff;
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px;
+}
+.topBarTitle {
+    flex: 1; min-width: 0; text-align: center;
+    font-size: 20px; font-weight: bold;
+    font-family: var(--torahFontStack);
+}
+.minhagPill {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff; border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 999px; padding: 5px 12px;
+    font-size: 12px; font-family: var(--torahFontStack);
+    cursor: pointer; line-height: 1.2;
+    display: inline-flex; gap: 5px; align-items: center;
+    white-space: nowrap;
+}
+.minhagPill:active { background: rgba(255, 255, 255, 0.28); }
+.minhagPillLabel { opacity: 0.85; font-size: 11px; }
+.minhagPillValue { font-weight: bold; font-size: 12px; }
+
+.thisWeekCard {
+    margin: 16px; padding: 18px;
+    background: var(--colorParchment); border: 1px solid #e6d8b8;
+    border-radius: 12px; text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.thisWeekLabel { font-size: 13px; color: #888; margin-bottom: 6px; }
+.thisWeekParasha {
+    font-size: 28px; font-weight: bold; color: var(--colorPrimary);
+    font-family: var(--torahFontStack);
+}
+.thisWeekSpecial { margin-top: 8px; color: var(--colorVerseNum); font-size: 15px; }
+.thisWeekCta { margin-top: 10px; font-size: 13px; color: var(--colorAccent); }
+
+.bigCta {
+    display: block; width: calc(100% - 32px);
+    margin: 16px; padding: 16px;
+    background: var(--colorPrimary); color: #fff;
+    border: none; border-radius: 12px;
+    font-size: 18px; font-weight: bold;
+    font-family: var(--torahFontStack);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.accordion {
+    background: #f0f4f8; color: var(--colorPrimary);
+    cursor: pointer; padding: 14px 16px;
+    width: 100%; border: none; border-bottom: 1px solid #d8e2ee;
+    text-align: right; font-size: 17px; font-weight: bold;
+    font-family: var(--torahFontStack);
+    transition: background 0.2s;
+}
+.accordion:hover, .accordion.open { background: #dee9f3; }
+.panel {
+    padding: 0; background: #fff;
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.25s ease-out;
+}
+
+.parashaGrid { padding: 8px; }
+.parashaGroup { margin-bottom: 10px; }
+.parashaGroupTitle {
+    font-weight: bold; color: var(--colorPrimary);
+    font-size: 14px; padding: 6px 4px;
+    font-family: var(--torahFontStack);
+}
+.parashaBtn {
+    display: inline-block; margin: 3px;
+    padding: 7px 12px; background: #f0f4f8;
+    border: 1px solid #c2d4e7; border-radius: 6px;
+    color: #333; font-size: 15px;
+    font-family: var(--torahFontStack);
+    cursor: pointer;
+}
+.parashaBtn:hover { background: #dee9f3; }
+
+.specialList {
+    padding: 4px 0; color: #333; font-size: 15px;
+    max-height: 60vh; overflow-y: auto;
+}
+.specialList .specialGroup {
+    margin: 0 0 6px 0;
+}
+.specialList .specialGroupTitle {
+    background: #eef3fa;
+    color: var(--colorPrimary);
+    font-family: var(--torahFontStack);
+    font-weight: bold;
+    font-size: 16px;
+    padding: 8px 14px;
+    border-top: 1px solid #dde6f1;
+    border-bottom: 1px solid #dde6f1;
+    text-align: right;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: background 0.15s;
+    user-select: none;
+}
+.specialList .specialGroupTitle:hover,
+.specialList .specialGroupTitle.open {
+    background: #dde9f5;
+}
+.specialList .specialGroupTitleText {
+    flex: 1;
+    text-align: right;
+}
+.specialList .specialGroupChevron {
+    display: inline-block;
+    color: var(--colorAccent);
+    font-size: 18px;
+    line-height: 1;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    transform: rotate(0deg);
+    transition: transform 0.2s ease;
+}
+.specialList .specialGroupTitle.open .specialGroupChevron {
+    transform: rotate(90deg);
+}
+.specialList .specialGroupBody {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out;
+}
+.specialList .specialItem {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px; border-bottom: 1px solid #f1f4f8;
+}
+.specialList .specialItemClickable { cursor: pointer; }
+.specialList .specialItemClickable:hover { background: #f4f8fc; }
+.specialList .specialItemClickable:active { background: #e9f0f8; }
+.specialList .specialGroup .specialItem:last-child {
+    border-bottom: none;
+}
+.specialList .specialName {
+    flex: 1; text-align: right; padding-right: 8px;
+    font-family: var(--torahFontStack);
+}
+.specialList .specialJumpArrow {
+    font-size: 18px; line-height: 1;
+    color: var(--colorAccent); font-weight: bold;
+    width: 14px; text-align: center; flex-shrink: 0;
+}
+.specialList .specialEmpty {
+    padding: 12px; color: #888; text-align: center;
+}
+
+
+
+/* ======== Read page ======== */
+.theReadBody {
+    direction: rtl;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--colorParchment);
+}
+
+.readTopBar {
+    background: var(--colorPrimary); color: #fff;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 8px;
+    flex-shrink: 0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+.readTopBar .iconBtn {
+    /* Inline-flex centers the inline SVG perfectly inside the
+       36x36 button regardless of font metrics or RTL context.
+       The previous version used Unicode glyphs (⌂ and ≡) without
+       flex centering, which made the icons drift off-center
+       because both glyphs are typographically top/right-heavy
+       inside their em boxes. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px;
+    width: 36px; height: 36px;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.readTopBar .iconBtn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    display: block;
+}
+.readTopBar .iconBtn:hover { background: rgba(255,255,255,0.28); }
+.readTopBar .iconBtn:active { background: rgba(255,255,255,0.32); }
+.readBreadcrumb {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    font-size: 14px; color: #fff;
+    font-family: var(--torahFontStack);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Always-visible toggle pills in the top bar. */
+.readTopBar .topToggle {
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.45);
+    border-radius: 16px;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px; font-weight: bold;
+    font-family: var(--torahFontStack);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.readTopBar .topToggle.active {
+    background: #fff;
+    color: var(--colorPrimary);
+}
+.readTopBar .topToggle:not(.active) {
+    text-decoration: line-through;
+    opacity: 0.85;
+}
+
+.readStage {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px 0 18px 0;
+    -webkit-overflow-scrolling: touch;
+    background: var(--colorParchment);
+}
+/* Cap the reading column at a real Torah-scroll-like width and center
+   it inside the stage. On a phone (the primary target) the screen is
+   already narrower than this cap, so nothing changes. On tablets and
+   desktop browsers (the dev-mode workflow described in
+   .notes/2026-05-08_browser_dev_mode.md), this stops a single line
+   from stretching across the whole window — which would force the
+   kashida pass to absorb huge horizontal slack and produce visibly
+   wide inter-word gaps. The cap also makes computeGlobalFontSize pick
+   a larger, less-shrunken global font (since the busiest line now
+   has to fit in a narrower column), so the page reads more like a
+   printed Tikun page. The swipe-nav listener is on `document` so
+   side-margin gestures keep working. */
+.readColumn {
+    direction: rtl;
+    font-size: var(--fontSizeIvrit);
+    font-family: var(--torahFontStack);
+    color: var(--colorScrollInk);
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.readLoading, .readError {
+    text-align: center;
+    padding: 40px 16px;
+    color: #888;
+    font-size: 16px;
+    font-family: var(--torahFontStack);
+}
+
+/* ============ Torah-scroll column grid ============ */
+/* The column body is a 2-column flex grid:
+   - .sColLines  (the body of the column - 42 lines stacked vertically)
+   - .sColGutter (a fixed-width right-margin column for verse numbers
+                  and aliyah labels, positioned ABSOLUTELY against the
+                  matching line by JS so it doesn't perturb the line
+                  width).
+   In RTL flow, flex-direction: row places the FIRST child (gutter) on
+   the right, which is what we want. */
+.scrollColumn { padding: 0 var(--colColumnPaddingX); }
+.sColGrid {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    direction: rtl;
+}
+.sColGutter {
+    flex: 0 0 auto;
+    width: var(--colGutterWidth);
+    min-width: var(--colGutterWidth);
+    position: relative;
+    align-self: stretch;
+    border-left: 1px solid #ecdcb6;
+    margin-left: 6px;
+}
+.sGutterEntry {
+    position: absolute;
+    right: 2px;
+    text-align: center;
+    line-height: 1;
+    user-select: none;
+    width: calc(var(--colGutterWidth) - 4px);
+}
+.sAliyahLabel {
+    font-size: calc(var(--fontSizeIvrit) * 0.55);
+    color: var(--colorMarker);
+    font-weight: bold;
+    margin-bottom: 1px;
+}
+.sVerseNum {
+    display: inline-block;
+    font-size: calc(var(--fontSizeIvrit) * 0.65);
+    font-weight: bold;
+    color: var(--colorVerseNum);
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 3px;
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+}
+.sVerseNum:active { background: rgba(176, 123, 45, 0.18); }
+/* When a single source line carries multiple verse-starts (very common
+   in a tikun: line ends one verse and the very next word is the first
+   word of the following verse), layoutGutter() puts every verse number
+   into the SAME .sGutterEntry. Pin them to display:block here so they
+   stack vertically within the entry instead of overflowing horizontally
+   off the gutter's narrow column. */
+.sGutterEntry .sVerseNum { display: block; }
+
+.sColLines {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* ----- A single Torah-scroll line ----- */
+/* Each line is a flex row that fills the available width. We use
+   "justify-content: space-between" to force first-and-last words to the
+   line edges, which mimics a real scroll's edge-to-edge justification.
+   The font itself doesn't have kashida glyphs accessible via CSS, so we
+   rely on inter-word spacing to fill the line. */
+.sLine {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: 100%;
+    margin-bottom: 0.12em;
+    line-height: 1.55;
+    /* Full-justify by stretching the gaps between words to the column
+       edges - mimics edge-to-edge Torah-scroll justification.
+       The pre-render measurement step has already chosen a font-size
+       that ensures every line's natural content width fits within the
+       container - so space-between distribution will always have
+       positive free space to stretch into.
+       `column-gap` enforces a MINIMUM inter-word distance: with
+       space-between, the actual gap is max(column-gap, free-space/N).
+       Without this, busy lines with no slack would render with words
+       glued edge-to-edge (the "אשתוותהר..." bug). */
+    justify-content: space-between;
+    column-gap: 0.4em;
+    align-items: baseline;
+    direction: rtl;
+}
+.sLine.sLineEndShort {
+    /* Last line of a verse / pre-petucha / end-of-column - words flow
+       naturally with a small fixed gap, no stretch. */
+    justify-content: flex-start;
+    column-gap: 0.35em;
+}
+.sLine.sLineKashidaCap {
+    /* Sparse line where the kashida couldn't fully absorb all the
+       leftover slack via inter-word gaps + letter-spacing combined.
+       Switch to flex-start so the residual blank collects at the
+       line's start (RTL: right side wraps first, leaving a quiet
+       ragged left edge), like a Stam scribe pausing rather than
+       opening huge holes between words/letters. */
+    justify-content: flex-start;
+    column-gap: 0.45em;
+}
+.sLine.sLineKashidaTight {
+    /* Saturated kashida: our computed inter-word gap + letter-spacing
+       already fills the column edge-to-edge. We pin to flex-start so
+       the browser doesn't try to redistribute the few sub-pixels of
+       leftover slack via space-between -- which would reshape the
+       gaps unpredictably and (worse) push the last word's box past
+       the column's overflow-clip boundary on the left. */
+    justify-content: flex-start;
+}
+/* ----- Maqaf-joined word pair ----- */
+/* Words connected by a maqaf ("עַל־כֵּן", "אֶת־הָעָם", ...) are one
+   *visual unit* in a Sefer Torah and a Tikun Korim: the maqaf glyph
+   sits flush between them, with no inter-word gap. We render the pair
+   as a single inline-flex container so the parent .sLine's
+   `space-between` justification treats the whole pair as one flex
+   item. Each word inside remains its own .word span so taps still
+   work per-word. */
+.sLine .maqafPair,
+.sShirahSeg .maqafPair {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    column-gap: 0;
+    flex: 0 0 auto;
+}
+.sLine .maqafPair .word,
+.sShirahSeg .maqafPair .word {
+    flex: 0 0 auto;
+}
+.sLine .maqafPair .maqafGlyph,
+.sShirahSeg .maqafPair .maqafGlyph {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 0.04em;
+    color: inherit;
+    font-family: var(--torahFontStack);
+}
+/* Used briefly during layout to read the available line width. We keep
+   the height tiny but the width must reflect the real column. */
+.sLineMeasure { visibility: hidden; height: 1px; pointer-events: none; }
+.sLineBlank {
+    height: calc(var(--fontSizeIvrit) * 1.55);
+}
+
+/* ----- Shirah (poetry) lines ----- */
+/* Used for Shirat HaYam (col 78) and Ha'azinu (cols 242-243). Each
+   line has 1, 2, or 3 segments laid out as RTL flex with wide gaps
+   between segments (the canonical Stam bricklayer pattern). The
+   segments themselves are inline word groups that flow naturally
+   without justification. */
+.sLine.sLineShirah {
+    /* Override the regular line's space-between (which would distribute
+       gaps between every word). For shirah we want gaps only between
+       segments, so we use space-between on the line and let each
+       segment be a non-shrinking flex child. */
+    justify-content: space-between;
+    column-gap: 0;
+}
+.sLine.sLineShirah.sLineShirahCenter {
+    /* Single-segment poetry lines (e.g. "Az yashir...") are
+       horizontally centered with auto-margins. */
+    justify-content: center;
+}
+.sLine.sLineShirah.sLineShirahLeft {
+    /* Some 2-segment lines hug the LEFT edge (no right segment).
+       In RTL, that means the FIRST segment sits flush at the left
+       column edge with empty space on the right. */
+    justify-content: flex-end;
+}
+.sShirahSeg {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    flex: 0 1 auto;
+    column-gap: 0.4em;
+    align-items: baseline;
+    direction: rtl;
+}
+
+.sSetumah {
+    /* ~9 character widths - the standard Stam setumah gap */
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 6ch;
+    height: 1em;
+}
+/* When a setumah falls inside a short line (the paragraph break is
+   IN this line), the gap absorbs the leftover slack so the post-
+   setumah text sits at the line-end (left edge in RTL). 6ch stays
+   as the minimum width. */
+.sSetumah.sSetumahFlex {
+    flex: 1 1 6ch;
+    min-width: 6ch;
+}
+
+/* ----- Words ----- */
+.word {
+    cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+    padding: 0 1px;
+    border-radius: 3px;
+    transition: background 0.15s;
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    /* keep words from being broken across lines */
+    white-space: nowrap;
+    /* Words must NEVER shrink. The autoFit pass scales the parent's
+       font-size if a line still doesn't fit at the chosen base size. */
+    flex: 0 0 auto;
+}
+/* Masoretic letter-size overrides (otiyot rabati / ze'irot).
+   Only the SINGLE special letter is enlarged or shrunken, NOT the
+   whole word. The build script tags such words with both
+   data-sty="big|small" AND data-sty-letter="<consonant>", and
+   applyDisplayToWord() splits that one consonant + its combining
+   marks into an inline <span class="styLetter"> child. The size
+   override therefore lives on .word .styLetter, not on .word
+   itself, so e.g. "מִשְׁפָּטָן" reads at the column's normal size
+   with only the final ן visibly larger. */
+.word[data-sty="big"]   > .styLetter { font-size: 1.35em; }
+.word[data-sty="small"] > .styLetter { font-size: 0.78em; }
+/* Slight vertical re-centering. Without this, an enlarged glyph's
+   baseline shifts and pushes the surrounding letters off-baseline; we
+   anchor the inner span to the parent's baseline so it grows around
+   the baseline rather than above it. */
+.word > .styLetter { display: inline; vertical-align: baseline; }
+
+/* ---- Monday/Thursday morning aliyah stops ----
+   Words tagged data-mt="1" by the build script (sourced from the
+   masoretic "שני וחמישי" markers in our reference text) are the
+   exact verses where the weekday short reading stops. We render
+   a small diamond glyph immediately after the word, in the same
+   golden ink as the verse numbers in the gutter. The marker only
+   shows when ta'amim are visible (body.taamOn) so the layout
+   matches the standard tikun korim convention -- no clutter in
+   stam mode. */
+body.taamOn .word[data-mt="1"]::after {
+    content: '\25C7';            /* ◇  WHITE DIAMOND */
+    display: inline;
+    margin-inline-start: 0.18em;
+    font-size: 0.78em;
+    color: var(--colorVerseNum);
+    vertical-align: 0.08em;
+    /* Don't stretch the gap between this word and the next when the
+       line is full-justified: the diamond is part of THIS word's
+       visual cluster. */
+    pointer-events: none;
+}
+/* No persistent affordance for tapped/overridden words: the visible text
+   change (nikud or ta'amim appearing/disappearing) is itself the feedback.
+   `.wOverride` and `.vOverride` classes are still set in the DOM so any
+   future indicator (e.g. a side dot) can hook on, but no background tint
+   is rendered. */
+
+.flashClear {
+    background: rgba(176, 123, 45, 0.25) !important;
+    transition: background 0.05s !important;
+}
+
+/* ----- Sefer / parasha markers inside the column ----- */
+.seferMarker {
+    text-align: center;
+    font-size: 1.2em;
+    color: var(--colorPrimary);
+    font-weight: bold;
+    margin: 6px 0 14px 0;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #d8c8a0;
+    font-family: var(--torahFontStack);
+}
+/* Inter-book gap: 4 line-heights of empty space between humashim
+   ("ארבעה שיטין" halachic separation). Sized in em so it scales with
+   the global font-size we pick at runtime. */
+.seferGap { height: 6.4em; }
+
+/* footer nav */
+.readFooter {
+    background: #fff;
+    border-top: 1px solid #d8e2ee;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    flex-shrink: 0;
+}
+.readFooter .navBtn {
+    background: var(--colorPrimary); color: #fff;
+    border: none; border-radius: 6px;
+    width: 48px; height: 44px;
+    font-size: 26px; font-weight: bold;
+    line-height: 1; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.readFooter .navBtn:disabled {
+    background: #ccc; cursor: not-allowed;
+}
+.readFooter .colInfo {
+    flex: 1; text-align: center;
+    font-size: 14px; color: #555;
+    font-family: var(--torahFontStack);
+}
+
+/* overlay (jump menu) */
+.overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+}
+.overlayCard {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+    max-width: 380px; width: 100%;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    direction: rtl;
+}
+.overlayTitle {
+    font-size: 18px; font-weight: bold;
+    color: var(--colorPrimary); margin-bottom: 14px;
+    text-align: center;
+    font-family: var(--torahFontStack);
+}
+.jumpRow {
+    display: flex; align-items: center;
+    margin-bottom: 10px; gap: 10px;
+}
+.jumpRow label {
+    width: 60px; color: #555; font-size: 14px;
+    font-family: var(--torahFontStack);
+}
+.jumpRow select {
+    flex: 1; padding: 8px;
+    border: 1px solid #c2d4e7; border-radius: 6px;
+    font-size: 15px; background: #fff;
+    font-family: var(--torahFontStack);
+}
+.overlayActions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 14px;
+}
+.overlayActions .tBtn {
+    padding: 8px 16px; border-radius: 6px;
+    border: 1px solid #c2d4e7; background: #f0f4f8;
+    color: var(--colorPrimary); cursor: pointer; font-weight: bold;
+    font-family: var(--torahFontStack);
+}
+.overlayActions .tBtn.primary {
+    background: var(--colorPrimary); color: #fff; border-color: var(--colorPrimary);
+}
+
+/* ======== Help / first-launch intro =========
+   Shared by:
+   - the auto-shown intro popup on first launch (gated by localStorage
+     key tk_seenIntro), and
+   - the manual reopen via the "?" icon in the home-screen top bar.
+   Bilingual layout: a Hebrew (RTL) panel on top, then a thin separator,
+   then an English (LTR) panel below.
+*/
+.helpIconBtn {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+    width: 30px; height: 30px;
+    cursor: pointer;
+    padding: 0;
+    /* Force LTR for the glyph -- the surrounding .topBar has
+       direction:rtl, which makes the "?" inline box align right
+       inside the circle. Override locally so the glyph centers in
+       its own LTR cell. */
+    direction: ltr;
+    /* Use the platform's regular sans-serif rather than our Hebrew UI
+       font (KeterYG), whose "?" glyph rides high and skinny inside a
+       fixed circle. Arial/system fonts have a balanced, symmetrical
+       question mark. */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-size: 18px; font-weight: bold;
+    /* Use grid (not inline-flex) for perfect horizontal+vertical
+       centering of a single child glyph regardless of font metrics.
+       Setting place-items:center is bidi-agnostic. */
+    display: grid;
+    place-items: center;
+    line-height: 1;
+    /* The "?" baseline sits below center in most fonts; nudge the
+       inner glyph up by half a pixel via translateY so visually the
+       dot+curve are evenly distributed in the circle. */
+}
+.helpIconBtn > .helpIconBtnGlyph {
+    display: inline-block;
+    transform: translateY(-0.5px);
+}
+.helpIconBtn:active { background: rgba(255, 255, 255, 0.32); }
+
+.helpCard {
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.helpTitleEn {
+    display: block;
+    font-size: 13px; color: #888;
+    font-weight: normal; margin-top: 4px;
+    font-family: var(--uiFontStack);
+}
+.helpBlock { padding: 0; }
+.helpBlock + .helpBlock {
+    border-top: 1px solid #e8eef5;
+    padding-top: 12px;
+    margin-top: 12px;
+}
+.helpBlockHe { direction: rtl; }
+.helpBlockEn { direction: ltr; }
+.helpRow { margin-bottom: 12px; }
+.helpRow:last-child { margin-bottom: 0; }
+.helpGesture {
+    display: block;
+    font-weight: bold; color: var(--colorPrimary);
+    margin-bottom: 3px;
+    font-size: 15px;
+}
+.helpDesc {
+    display: block;
+    color: #444; font-size: 14px; line-height: 1.5;
+}
+.helpBlockHe .helpGesture, .helpBlockHe .helpDesc {
+    font-family: var(--torahFontStack);
+}
+.helpBlockEn .helpGesture, .helpBlockEn .helpDesc {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.helpActions { justify-content: center; }
+.helpActions .tBtn { min-width: 160px; }
+
+/* gesture debug bar (toggleable). Off by default. */
+.debugBar {
+    position: fixed;
+    left: 6px;
+    bottom: 56px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 4px 8px;
+    border-radius: 6px;
+    max-width: 60vw;
+    pointer-events: auto;
+    z-index: 999;
+    display: none;
+    direction: ltr;
+}
+.debugBar.show { display: block; }

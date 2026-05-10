@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>תיקון קוראים - קריאה</title>
+    <link rel="stylesheet" type="text/css" href="./css/stylesTikun.css">
+    <!-- torah.js / layout.js are JS shims around the same content as
+         data/torah.json and data/layout.json, but loadable from a
+         file:// URL (browsers block fetch() on file://). They set
+         window.__TORAH_DATA__ and window.__LAYOUT_DATA__. The
+         shims are emitted alongside the JSON by the data-build script. -->
+    <script src="./data/torah.js"></script>
+    <script src="./data/layout.js"></script>
+    <script src="./js/specialReadings.js"></script>
+    <script src="./js/tikunScript.js"></script>
+</head>
+
+<body class="theBody theReadBody">
+
+    <div class="readTopBar">
+        <button class="iconBtn" id="btnHome" onclick="goHome()" title="ראשי" aria-label="ראשי">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 3.2 3 11h2v9h5v-6h4v6h5v-9h2z"/>
+            </svg>
+        </button>
+        <button class="iconBtn" id="btnJump" onclick="openJumpMenu()" title="מעבר" aria-label="מעבר">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="4" y="6"  width="16" height="2.2" rx="1"/>
+                <rect x="4" y="11" width="16" height="2.2" rx="1"/>
+                <rect x="4" y="16" width="16" height="2.2" rx="1"/>
+            </svg>
+        </button>
+        <div class="readBreadcrumb" id="readBreadcrumb" ondblclick="toggleDebugBar()">—</div>
+        <button id="btnNikud" class="tBtn topToggle" onclick="toggleNikud()">נקודות</button>
+        <button id="btnTaam" class="tBtn topToggle" onclick="toggleTaam()">טעמים</button>
+    </div>
+
+    <div class="readStage" id="readStage">
+        <div class="readColumn" id="readColumn">
+            <div class="readLoading">טוען טקסט...</div>
+        </div>
+    </div>
+
+    <!-- Footer: in the actual RTL flex direction, the FIRST child sits on
+         the right and the LAST on the left. Right button = previous (back
+         in text), left button = next (forward in text). The glyphs are
+         Hebrew-reader-friendly: ‹ on right (rewind look), › on left
+         (advance look). The parasha/aliyah info goes in the middle. -->
+    <div class="readFooter">
+        <button class="navBtn" id="btnPrev" onclick="goColumnDelta(-1)" aria-label="העמודה הקודמת">‹</button>
+        <div class="colInfo" id="colInfo">—</div>
+        <button class="navBtn" id="btnNext" onclick="goColumnDelta(1)" aria-label="העמודה הבאה">›</button>
+    </div>
+
+    <div class="debugBar" id="debugBar" onclick="toggleDebugBar()" title="Gesture log"></div>
+
+    <div class="overlay" id="jumpOverlay" style="display:none" onclick="closeJumpMenuIfBackdrop(event)">
+        <div class="overlayCard">
+            <div class="overlayTitle">מעבר אל</div>
+            <div class="jumpRow">
+                <label>ספר</label>
+                <select id="jumpSefer" onchange="onJumpSeferChange()"></select>
+            </div>
+            <div class="jumpRow">
+                <label>פרשה</label>
+                <select id="jumpParasha" onchange="onJumpParashaChange()"></select>
+            </div>
+            <div class="jumpRow">
+                <label>עליה</label>
+                <select id="jumpAliyah"></select>
+            </div>
+            <div class="overlayActions">
+                <button class="tBtn" onclick="closeJumpMenu()">בטל</button>
+                <button class="tBtn primary" onclick="doJump()">עבור</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initReadPage();
+        });
+    </script>
+
+</body>
+
+</html>

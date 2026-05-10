@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>תיקון קוראים</title>
+    <link rel="stylesheet" type="text/css" href="./css/stylesTikun.css">
+    <script src="./js/hebcal.bundle.js"></script>
+    <script src="./js/calendar.js"></script>
+</head>
+
+<body class="theBodyIntro">
+    <div class="introWrap">
+        <div class="introTitle">תיקון קוראים</div>
+        <div class="introSub">לימוד קריאת התורה</div>
+        <div class="introLoader">
+            <div class="introSpinner"></div>
+            <div class="introMsg">טוען תוכן...</div>
+        </div>
+    </div>
+    <script>
+        // Default landing: jump straight into the weekly parasha reading.
+        // We need the calendar to know which parasha; once it loads we
+        // navigate. If anything fails or takes too long we fall back to the
+        // reader (which itself falls back to last-viewed column or column 1).
+        (function () {
+            var navigated = false;
+            function go(url) {
+                if (navigated) return;
+                navigated = true;
+                window.location.replace(url);
+            }
+            function readingUrl() {
+                try {
+                    if (typeof getThisWeekReading === 'function') {
+                        var info = getThisWeekReading(new Date());
+                        if (info && info.parasha) {
+                            return './read.html?parasha=' +
+                                encodeURIComponent(info.parasha);
+                        }
+                    }
+                } catch (e) {}
+                return './read.html';
+            }
+            // _loadCalendarOnce is defined by calendar.js and either resolves
+            // immediately (if the JSON is already loaded) or fetches it.
+            if (typeof _loadCalendarOnce === 'function') {
+                _loadCalendarOnce(function () { go(readingUrl()); });
+            } else {
+                go('./read.html');
+            }
+            // Hard fallback so the splash never wedges.
+            setTimeout(function () { go(readingUrl()); }, 1500);
+        })();
+    </script>
+</body>
+
+</html>

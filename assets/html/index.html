@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>תיקון קוראים</title>
+    <link rel="stylesheet" type="text/css" href="./css/stylesTikun.css">
+    <script src="./js/hebcal.bundle.js"></script>
+    <script src="./js/calendar.js"></script>
+    <!-- Same JS shims that read.html loads (see read.html for rationale).
+         The home page itself doesn't use the Torah body text, but we
+         load these here too so opening read.html via "?col=N" links
+         from the home page still works under file://. -->
+    <script src="./data/torah.js"></script>
+    <script src="./data/layout.js"></script>
+    <script src="./js/specialReadings.js"></script>
+    <script src="./js/tikunScript.js"></script>
+</head>
+
+<body class="theBodyMain">
+
+    <div class="topBar">
+        <button class="helpIconBtn" id="btnHelp"
+                onclick="showHelpPopup()"
+                title="הוראות שימוש / How to use"><span class="helpIconBtnGlyph">?</span></button>
+        <div class="topBarTitle">תיקון קוראים</div>
+        <button class="minhagPill" id="minhagPill"
+                onclick="toggleMinhag()"
+                title="החלף בין מנהג ארץ ישראל לחוץ לארץ">
+            <span class="minhagPillLabel">מנהג:</span>
+            <span class="minhagPillValue" id="minhagPillValue">ארץ ישראל</span>
+        </button>
+    </div>
+
+    <button class="bigCta" onclick="goReadThisWeek()">פרשת השבוע</button>
+
+    <button class="accordion" onclick="accordionOpenClose('jumpList')">בחירת פרשה</button>
+    <div class="panel" id="jumpList">
+        <div class="parashaGrid">
+            <div class="parashaGroup">
+                <div class="parashaGroupTitle">בראשית</div>
+                <button class="parashaBtn" onclick="goReadAtParasha('Bereshit')">בראשית</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Noah')">נח</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('LehLeha')">לך לך</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayera')">וירא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('HayeSara')">חיי שרה</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Toldot')">תולדות</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayetze')">ויצא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayishlah')">וישלח</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayeshev')">וישב</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Miketz')">מקץ</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayigash')">ויגש</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayehi')">ויחי</button>
+            </div>
+            <div class="parashaGroup">
+                <div class="parashaGroupTitle">שמות</div>
+                <button class="parashaBtn" onclick="goReadAtParasha('Shemot')">שמות</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vaera')">וארא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Bo')">בא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Beshalah')">בשלח</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Yitro')">יתרו</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Mishpatim')">משפטים</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Terouma')">תרומה</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Tetzave')">תצוה</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('KiTissa')">כי תשא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayakhel')">ויקהל</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Pekoudey')">פקודי</button>
+            </div>
+            <div class="parashaGroup">
+                <div class="parashaGroupTitle">ויקרא</div>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayikra')">ויקרא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Zav')">צו</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Shemini')">שמיני</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Tazria')">תזריע</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Mezora')">מצורע</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('AhareiMot')">אחרי מות</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Kedoshim')">קדושים</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Emor')">אמור</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Behar')">בהר</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Behoukotay')">בחוקותי</button>
+            </div>
+            <div class="parashaGroup">
+                <div class="parashaGroupTitle">במדבר</div>
+                <button class="parashaBtn" onclick="goReadAtParasha('Bamidbar')">במדבר</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Nasso')">נשא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Behaaloteha')">בהעלותך</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('ShelahLeha')">שלח לך</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Korah')">קרח</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Hukat')">חקת</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Balak')">בלק</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Pinhas')">פינחס</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Matot')">מטות</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Massey')">מסעי</button>
+            </div>
+            <div class="parashaGroup">
+                <div class="parashaGroupTitle">דברים</div>
+                <button class="parashaBtn" onclick="goReadAtParasha('Devarim')">דברים</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vaethanan')">ואתחנן</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Ekev')">עקב</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Reeh')">ראה</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Shoftim')">שופטים</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('KiTztze')">כי תצא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('KiTavo')">כי תבוא</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Nizavim')">ניצבים</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Vayeleh')">וילך</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('Haazinu')">האזינו</button>
+                <button class="parashaBtn" onclick="goReadAtParasha('VezotHaberaha')">וזאת הברכה</button>
+            </div>
+        </div>
+    </div>
+
+    <button class="accordion" onclick="accordionOpenClose('special')">מועדים, חגים וראש חודש</button>
+    <div class="panel" id="special">
+        <div class="specialList" id="specialList">בקרוב…</div>
+    </div>
+
+    <script>
+        // Auto-show the intro popup the FIRST time the app is opened.
+        // The popup DOM is built on demand by showHelpPopup() (defined
+        // in tikunScript.js); it persists the "seen" flag under
+        // `tk_seenIntro`. The same gate runs on read.html so whichever
+        // page the user lands on first gets the explanation. The "?"
+        // icon in the top bar of this page reopens it manually without
+        // clearing the flag.
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof showHelpPopupIfFirstLaunch === 'function') {
+                showHelpPopupIfFirstLaunch();
+            }
+        });
+    </script>
+
+</body>
+
+</html>

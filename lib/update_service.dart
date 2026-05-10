@@ -1,0 +1,380 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+
+class UpdateConfig {
+  static const String owner = 'davinob';
+  static const String repo = 'tikunKorimApp';
+  static const String branch = 'main';
+  static const String htmlPath = 'assets/html';
+}
+
+class UpdateService {
+  static UpdateService? _instance;
+  String? _localHtmlPath;
+  bool _hasLocalContent = false;
+  bool _updateInProgress = false;
+
+  UpdateService._();
+
+  static UpdateService get instance {
+    _instance ??= UpdateService._();
+    return _instance!;
+  }
+
+  bool get hasLocalContent => _hasLocalContent;
+  String? get localHtmlPath => _localHtmlPath;
+
+  // Bumped when the on-device asset shape changes (new files, schema
+  // changes etc). When this number increases, existing local content is
+  // cleared on launch and re-bootstrapped from bundled assets.
+  static const int _manifestVersion = 70;
+
+  Future<void> initialize() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      _localHtmlPath = '${dir.path}/html_content';
+      final localDir = Directory(_localHtmlPath!);
+      final manifestFile = File('${_localHtmlPath!}/manifest.json');
+      _hasLocalContent =
+          await localDir.exists() && await manifestFile.exists();
+
+      if (_hasLocalContent) {
+        final manifest = await _loadLocalManifest();
+        if (manifest['_manifestVersion'] != _manifestVersion) {
+          print(
+              '[UpdateService] Stale manifest detected, clearing local content for fresh sync');
+          await clearLocalContent();
+        }
+      }
+
+      // First-launch (or post-clear): copy bundled assets out of the APK so
+      // the WebView always serves them via file:// — fetch() of relative
+      // URLs (data/torah.json) cannot work against bundled-asset URLs.
+      if (!_hasLocalContent) {
+        await _copyBundledAssets();
+        await _writeBootstrapManifest();
+        _hasLocalContent = true;
+      }
+
+      print(
+          '[UpdateService] Initialized. hasLocalContent=$_hasLocalContent');
+    } catch (e) {
+      print('[UpdateService] Initialize error: $e');
+    }
+  }
+
+  Future<void> _writeBootstrapManifest() async {
+    final manifest = <String, dynamic>{
+      '_manifestVersion': _manifestVersion,
+      '_bootstrap': true,
+    };
+    final manifestFile = File('${_localHtmlPath!}/manifest.json');
+    await manifestFile.parent.create(recursive: true);
+    await manifestFile.writeAsString(json.encode(manifest));
+  }
+
+  String getIndexPath() {
+    if (_hasLocalContent) {
+      return 'file://${_localHtmlPath!}/indexIntro.html';
+    }
+    return 'assets/html/indexIntro.html';
+  }
+
+  String getMainIndexPath() {
+    if (_hasLocalContent) {
+      return 'file://${_localHtmlPath!}/index.html';
+    }
+    return 'assets/html/index.html';
+  }
+
+  String getLocalBasePath() {
+    return _localHtmlPath ?? '';
+  }
+
+  bool get isConfigured {
+    return UpdateConfig.owner != 'OWNER' && UpdateConfig.repo != 'REPO_NAME';
+  }
+
+  Future<UpdateResult> checkAndUpdate() async {
+    if (_updateInProgress) {
+      return UpdateResult(
+          success: false, message: 'Update already in progress');
+    }
+    if (!isConfigured) {
+      return UpdateResult(
+          success: false, message: 'GitHub repo not configured');
+    }
+    _updateInProgress = true;
+    try {
+      print('[UpdateService] Checking for updates...');
+      final remoteManifest = await _fetchRemoteManifest();
+      if (remoteManifest == null) {
+        return UpdateResult(
+            success: false, message: 'Could not fetch remote manifest');
+      }
+      print(
+          '[UpdateService] Remote manifest: ${remoteManifest.length} files');
+
+      final localManifest = await _loadLocalManifest();
+      // After bootstrap, the local manifest is just a flag; rebuild it by
+      // hashing the bundled-copy on disk against the remote tree so we know
+      // exactly which files need to be replaced from GitHub.
+      if (localManifest['_bootstrap'] == true) {
+        final hashed = await _buildLocalManifest(remoteManifest);
+        final filesToUpdate = _getFilesToUpdate(remoteManifest, hashed);
+        if (filesToUpdate.isNotEmpty) {
+          print(
+              '[UpdateService] ${filesToUpdate.length} bundled files differ from remote, downloading...');
+          await _downloadFiles(filesToUpdate, remoteManifest);
+        }
+        return UpdateResult(
+          success: true,
+          message: 'Initial sync complete (${filesToUpdate.length} updated)',
+          updatedCount: filesToUpdate.length,
+          needsReload: filesToUpdate.isNotEmpty,
+        );
+      }
+
+      final filesToUpdate = _getFilesToUpdate(remoteManifest, localManifest);
+
+      if (filesToUpdate.isEmpty) {
+        print('[UpdateService] Already up to date');
+        return UpdateResult(success: true, message: 'Already up to date');
+      }
+
+      print('[UpdateService] ${filesToUpdate.length} files to update');
+      await _downloadFiles(filesToUpdate, remoteManifest);
+      _hasLocalContent = true;
+
+      print(
+          '[UpdateService] Update complete: ${filesToUpdate.length} files');
+      return UpdateResult(
+          success: true,
+          message: 'Updated ${filesToUpdate.length} files',
+          updatedCount: filesToUpdate.length,
+          needsReload: true);
+    } catch (e) {
+      print('[UpdateService] Update error: $e');
+      return UpdateResult(success: false, message: 'Update error: $e');
+    } finally {
+      _updateInProgress = false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchRemoteManifest() async {
+    try {
+      final response = await _fetchGitHubTree();
+      if (response == null) return null;
+      final Map<String, dynamic> manifest = {};
+      final tree = response['tree'] as List;
+      for (var item in tree) {
+        final path = item['path'] as String;
+        if (path.startsWith(UpdateConfig.htmlPath) &&
+            path.length > UpdateConfig.htmlPath.length + 1) {
+          final relativePath =
+              path.substring(UpdateConfig.htmlPath.length + 1);
+          if (item['type'] == 'blob') {
+            manifest[relativePath] = {
+              'sha': item['sha'],
+              'size': item['size'],
+              'path': path,
+            };
+          }
+        }
+      }
+      return manifest;
+    } catch (e) {
+      print('[UpdateService] Fetch remote manifest error: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchGitHubTree() async {
+    final url =
+        'https://api.github.com/repos/${UpdateConfig.owner}/${UpdateConfig.repo}/git/trees/${UpdateConfig.branch}?recursive=1';
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        print('[UpdateService] GitHub tree fetch attempt $attempt');
+        final response = await http
+            .get(Uri.parse(url),
+                headers: {'Accept': 'application/vnd.github.v3+json'})
+            .timeout(const Duration(seconds: 30));
+        if (response.statusCode == 200) return json.decode(response.body);
+        print(
+            '[UpdateService] GitHub tree API returned ${response.statusCode}');
+      } catch (e) {
+        print(
+            '[UpdateService] GitHub tree fetch attempt $attempt failed: $e');
+      }
+      if (attempt < 3) {
+        await Future.delayed(Duration(seconds: 5 * attempt));
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _loadLocalManifest() async {
+    final manifestFile = File('${_localHtmlPath!}/manifest.json');
+    if (await manifestFile.exists()) {
+      final content = await manifestFile.readAsString();
+      return json.decode(content);
+    }
+    return {};
+  }
+
+  List<String> _getFilesToUpdate(
+      Map<String, dynamic> remote, Map<String, dynamic> local) {
+    final toUpdate = <String>[];
+    remote.forEach((path, info) {
+      final localInfo = local[path];
+      if (localInfo == null || localInfo['sha'] != info['sha']) {
+        toUpdate.add(path);
+      }
+    });
+    return toUpdate;
+  }
+
+  Future<void> _copyBundledAssets() async {
+    print('[UpdateService] Copying bundled assets to local storage...');
+    final baseDir = Directory(_localHtmlPath!);
+    if (!await baseDir.exists()) await baseDir.create(recursive: true);
+
+    final filesToCopy = <String>[
+      'index.html', 'indexIntro.html', 'read.html',
+      'css/stylesTikun.css',
+      'js/tikunScript.js', 'js/calendar.js', 'js/hebcal.bundle.js',
+      'js/specialReadings.js',
+      'data/torah.json', 'data/layout.json',
+      'data/torah.js', 'data/layout.js',
+      'data/calendar.json', 'data/special.json',
+      'fonts/DrugulinCLM-Bold.otf',
+      'fonts/StamAshkenazCLM.ttf',
+      'fonts/KeterYG-Medium.ttf',
+    ];
+
+    var copied = 0;
+    for (var relativePath in filesToCopy) {
+      try {
+        final data = await rootBundle.load('assets/html/$relativePath');
+        final localFile = File('${_localHtmlPath!}/$relativePath');
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(data.buffer.asUint8List());
+        copied++;
+      } catch (_) {}
+    }
+    print('[UpdateService] Copied $copied bundled files');
+  }
+
+  Future<Map<String, dynamic>> _buildLocalManifest(
+      Map<String, dynamic> remoteManifest) async {
+    final manifest = <String, dynamic>{};
+    for (var entry in remoteManifest.entries) {
+      final relativePath = entry.key;
+      final localFile = File('${_localHtmlPath!}/$relativePath');
+      if (await localFile.exists()) {
+        final bytes = await localFile.readAsBytes();
+        final localSha = _gitBlobSha(bytes);
+        manifest[relativePath] = {
+          'sha': localSha,
+          'size': bytes.length,
+          'path': (entry.value as Map<String, dynamic>)['path'],
+        };
+      }
+    }
+    manifest['_manifestVersion'] = _manifestVersion;
+    final manifestFile = File('${_localHtmlPath!}/manifest.json');
+    await manifestFile.parent.create(recursive: true);
+    await manifestFile.writeAsString(json.encode(manifest));
+    return manifest;
+  }
+
+  Future<void> _downloadFiles(
+      List<String> files, Map<String, dynamic> manifest) async {
+    final baseDir = Directory(_localHtmlPath!);
+    if (!await baseDir.exists()) await baseDir.create(recursive: true);
+
+    var downloaded = 0;
+    var failed = 0;
+    final successfulFiles = <String>[];
+
+    for (var relativePath in files) {
+      final info = manifest[relativePath];
+      final fullGitPath = info['path'] as String;
+      final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+      final rawUrl =
+          'https://raw.githubusercontent.com/${UpdateConfig.owner}/${UpdateConfig.repo}/${UpdateConfig.branch}/$fullGitPath?cb=$cacheBuster';
+      try {
+        final response = await http.get(Uri.parse(rawUrl),
+            headers: {'Cache-Control': 'no-cache, no-store'}).timeout(
+            const Duration(seconds: 15));
+        if (response.statusCode == 200) {
+          final expectedSha = info['sha'] as String?;
+          if (expectedSha != null) {
+            final actualSha = _gitBlobSha(response.bodyBytes);
+            if (actualSha != expectedSha) {
+              print(
+                  '[UpdateService] SHA mismatch for $relativePath: got $actualSha, expected $expectedSha (CDN stale, will retry)');
+              failed++;
+              continue;
+            }
+          }
+          final localFile = File('${_localHtmlPath!}/$relativePath');
+          await localFile.parent.create(recursive: true);
+          await localFile.writeAsBytes(response.bodyBytes);
+          downloaded++;
+          successfulFiles.add(relativePath);
+        } else {
+          failed++;
+          print(
+              '[UpdateService] HTTP ${response.statusCode} for $relativePath');
+        }
+      } catch (e) {
+        failed++;
+        print('[UpdateService] Failed to download $relativePath: $e');
+      }
+    }
+
+    print('[UpdateService] Downloaded: $downloaded, Failed: $failed');
+
+    final manifestFile = File('${_localHtmlPath!}/manifest.json');
+    final existingManifest = await _loadLocalManifest();
+    for (var relativePath in successfulFiles) {
+      if (manifest.containsKey(relativePath)) {
+        existingManifest[relativePath] = manifest[relativePath];
+      }
+    }
+    existingManifest['_manifestVersion'] = _manifestVersion;
+    await manifestFile.writeAsString(json.encode(existingManifest));
+  }
+
+  String _gitBlobSha(List<int> bytes) {
+    final header = utf8.encode('blob ${bytes.length}\x00');
+    return sha1.convert([...header, ...bytes]).toString();
+  }
+
+  Future<void> clearLocalContent() async {
+    final dir = Directory(_localHtmlPath!);
+    if (await dir.exists()) await dir.delete(recursive: true);
+    _hasLocalContent = false;
+    print('[UpdateService] Local content cleared');
+  }
+}
+
+class UpdateResult {
+  final bool success;
+  final String message;
+  final int updatedCount;
+  final bool needsReload;
+
+  UpdateResult({
+    required this.success,
+    required this.message,
+    this.updatedCount = 0,
+    this.needsReload = false,
+  });
+}
