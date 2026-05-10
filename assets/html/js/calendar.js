@@ -101,10 +101,45 @@ function _isoFromDate(d) {
     return y + '-' + m + '-' + day;
 }
 
+// Resolve which Shabbat the user is "currently looking at". The simple
+// rule (next Saturday in the future, today if today IS Saturday) breaks
+// down on Shabbat afternoon: by then the morning reading is already
+// done, and someone opening the app is almost certainly preparing for
+// NEXT Shabbat. The cutoff we use is 12:30 local time, which is
+// roughly minha gedola — practically the moment when the morning
+// reading is over for most communities. Past that on Saturday, we
+// roll forward to the following Saturday so getThisWeekReading()
+// returns next week's parasha.
+//
+// Edge case checked: minhag pills and special-readings rows pass
+// arbitrary `Date` instances through this helper to compute "what's
+// the parasha read on/near THIS date?". Those callers must keep
+// getting the strict "Saturday-of-the-current-week" answer (e.g.
+// when iterating over upcoming events, the Shabbat of a given event
+// shouldn't shift forward just because the local clock happens to
+// be past 12:30 on a Saturday). We detect "this is today" by
+// comparing the input date's Y/M/D with the actual current date,
+// and only apply the afternoon roll-forward in that case.
+var SHABAT_AFTERNOON_CUTOFF_MIN = 12 * 60 + 30;
+
+function _isSameYMD(a, b) {
+    return a.getFullYear() === b.getFullYear()
+        && a.getMonth() === b.getMonth()
+        && a.getDate() === b.getDate();
+}
+
 function _upcomingShabbat(d) {
     var dt = new Date(d.getTime());
+    var now = new Date();
+    var inputIsToday = _isSameYMD(dt, now);
     dt.setHours(12, 0, 0, 0);
     var add = (6 - dt.getDay() + 7) % 7;
+    if (add === 0 && inputIsToday) {
+        var nowMin = now.getHours() * 60 + now.getMinutes();
+        if (nowMin >= SHABAT_AFTERNOON_CUTOFF_MIN) {
+            add = 7;
+        }
+    }
     dt.setDate(dt.getDate() + add);
     return dt;
 }
@@ -338,5 +373,6 @@ if (typeof module !== 'undefined' && module.exports) {
         getUpcomingSpecialDays: getUpcomingSpecialDays,
         getFourSpecialParashiyot: getFourSpecialParashiyot,
         TK_HEBCAL_TO_SLUG: TK_HEBCAL_TO_SLUG,
+        _upcomingShabbat: _upcomingShabbat,
     };
 }

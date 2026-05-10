@@ -32,7 +32,7 @@ class UpdateService {
   // Bumped when the on-device asset shape changes (new files, schema
   // changes etc). When this number increases, existing local content is
   // cleared on launch and re-bootstrapped from bundled assets.
-  static const int _manifestVersion = 70;
+  static const int _manifestVersion = 73;
 
   Future<void> initialize() async {
     try {
@@ -245,12 +245,14 @@ class UpdateService {
     if (!await baseDir.exists()) await baseDir.create(recursive: true);
 
     final filesToCopy = <String>[
-      'index.html', 'indexIntro.html', 'read.html',
+      'index.html', 'indexIntro.html', 'read.html', 'megilla.html',
       'css/stylesTikun.css',
       'js/tikunScript.js', 'js/calendar.js', 'js/hebcal.bundle.js',
       'js/specialReadings.js',
       'data/torah.json', 'data/layout.json',
       'data/torah.js', 'data/layout.js',
+      'data/esther.json', 'data/esther_layout.json',
+      'data/esther.js', 'data/esther_layout.js',
       'data/calendar.json', 'data/special.json',
       'fonts/DrugulinCLM-Bold.otf',
       'fonts/StamAshkenazCLM.ttf',

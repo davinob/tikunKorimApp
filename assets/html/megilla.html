@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>תיקון קוראים — מגילת אסתר</title>
+    <link rel="stylesheet" type="text/css" href="./css/stylesTikun.css">
+    <!-- Megilat Esther uses the same renderer as the Torah view; we
+         alias the global so the engine reads esther.js content via
+         the loadTorah() / loadLayout() helpers without code changes.
+         A separate POS_KEY is also set so the user's last-read
+         column in Esther doesn't fight with the Torah position. -->
+    <script src="./data/esther.js"></script>
+    <script src="./data/esther_layout.js"></script>
+    <script>
+        window.__TORAH_DATA__ = window.__ESTHER_DATA__;
+        window.__LAYOUT_DATA__ = window.__ESTHER_LAYOUT_DATA__;
+        // Override the engine's column-position storage key so the
+        // megillah and Torah views remember their positions
+        // independently. Set on `window` BEFORE tikunScript.js runs.
+        window.__POS_KEY_OVERRIDE__ = 'tk_lastColumn_esther_v1';
+    </script>
+    <script src="./js/specialReadings.js"></script>
+    <script src="./js/tikunScript.js"></script>
+</head>
+
+<body class="theBody theReadBody bodyMegilla">
+
+    <div class="readTopBar">
+        <button class="iconBtn" id="btnHome" onclick="goHome()" title="ראשי" aria-label="ראשי">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 3.2 3 11h2v9h5v-6h4v6h5v-9h2z"/>
+            </svg>
+        </button>
+        <div class="readBreadcrumb" id="readBreadcrumb" ondblclick="toggleDebugBar()">—</div>
+        <button id="btnNikud" class="tBtn topToggle" onclick="toggleNikud()">נקודות</button>
+        <button id="btnTaam" class="tBtn topToggle" onclick="toggleTaam()">טעמים</button>
+    </div>
+
+    <div class="readStage" id="readStage">
+        <div class="readColumn" id="readColumn">
+            <div class="readLoading">טוען טקסט...</div>
+        </div>
+    </div>
+
+    <div class="readFooter">
+        <button class="navBtn" id="btnPrev" onclick="goColumnDelta(-1)" aria-label="העמודה הקודמת">‹</button>
+        <div class="colInfo" id="colInfo">—</div>
+        <button class="navBtn" id="btnNext" onclick="goColumnDelta(1)" aria-label="העמודה הבאה">›</button>
+    </div>
+
+    <div class="debugBar" id="debugBar" onclick="toggleDebugBar()" title="Gesture log"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initReadPage();
+        });
+    </script>
+
+</body>
+
+</html>

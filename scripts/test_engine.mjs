@@ -859,5 +859,251 @@ for (const [ref, label] of refsToCheck) {
     }
 }
 
+// ---- Repack-on-toggle preserves position ----
+//
+// Spec (user-reported bug): when the user toggles ta'amim/nikud or
+// taps a word/passuk, the column must be re-packed to the new
+// per-word widths -- previously the engine only updated text
+// inside the existing word spans, so line breaks and last-line
+// justification stayed stale until a full reload.
+//
+// We test the GATING logic (without exercising the full re-pack,
+// which depends on a real layout engine):
+//   1. With NO getBoundingClientRect stub -> repack falls back to
+//      refreshAllWords() (so headless tests don't crash and
+//      element references stay valid).
+//   2. With a stub on the readStage element -> repack calls
+//      renderColumn(COLUMN_IDX, ...) instead of refreshAllWords().
+//
+// The browser verification of the actual visual re-pack is part
+// of the manual / browser-driven smoke test (megilla.html and
+// read.html were exercised in-tree).
+{
+    // Confirm the headless-fallback branch: with no rect-measure
+    // available, calling repackPreservingPosition() must NOT throw,
+    // and must update word text in place via refreshAllWords()
+    // (verified earlier in the toggle tests above). This is a
+    // smoke test that the no-op fallback path executes cleanly.
+    let threw = false;
+    try { ctx.repackPreservingPosition(); }
+    catch (e) { threw = true; console.error('  repack threw:', e); }
+    assert(!threw,
+        `repackPreservingPosition() does not throw in headless mode`);
+
+    // And confirm the gated re-pack path: when getBoundingClientRect
+    // IS stubbed on the stage, repack should attempt a renderColumn.
+    // We spy on renderColumn and stub the stage rect (the column
+    // build itself will still use the headless DOM, which is
+    // good enough to count the call).
+    const stageEl = ctx.document.getElementById('readStage');
+    if (stageEl) {
+        stageEl.getBoundingClientRect = function () {
+            return { top: 0, bottom: 800, left: 0, right: 600,
+                     width: 600, height: 800 };
+        };
+        let renderCalls = 0;
+        let lastIdx = null;
+        const origRender = ctx.renderColumn;
+        ctx.renderColumn = function (idx, scrollTo) {
+            renderCalls++;
+            lastIdx = idx;
+            return origRender(idx, scrollTo);
+        };
+        const expectedIdx = ctx.COLUMN_IDX;
+        ctx.repackPreservingPosition();
+        assert(renderCalls === 1,
+            `repackPreservingPosition() triggers exactly 1 renderColumn ` +
+            `call when stage is measurable (got ${renderCalls})`);
+        assert(lastIdx === expectedIdx,
+            `repack re-renders the CURRENT column ` +
+            `(got idx ${lastIdx}, want ${expectedIdx})`);
+        // Restore.
+        ctx.renderColumn = origRender;
+        delete stageEl.getBoundingClientRect;
+    }
+}
+
+// ---- Megilat Esther data integrity ----
+//
+// Esther is shipped as a sibling dataset (esther.json + esther_layout.json)
+// rendered by the same engine via megilla.html, which aliases
+// __TORAH_DATA__ = __ESTHER_DATA__ before tikunScript.js loads.
+// This block validates the BUILD output, not the renderer (the
+// renderer is exercised on Torah data above and reuses identical
+// code paths). What we check:
+//
+//   1. esther.json exists, parses, and has plausible word counts.
+//   2. Chapter / verse markers are present and in order.
+//   3. The first chapter starts with "ויהי בימי אחשורוש" (Esther 1:1),
+//      and the very last word ends with "זרעו" (Esther 10:3).
+//   4. The setumah convention used in Haman's-sons list (chapter 9)
+//      survives the build: at least one setumah token lives in the
+//      last quarter of the stream.
+{
+    let estherJson;
+    try {
+        estherJson = readFileSync(
+            resolve(repo, 'assets/html/data/esther.json'), 'utf8');
+    } catch (e) {
+        estherJson = null;
+    }
+    if (estherJson) {
+        const ESTHER = JSON.parse(estherJson);
+        const toks = ESTHER.tokens || [];
+        const words = toks.filter(t => t && t.k === 'w');
+        const chapters = toks.filter(t => t && t.k === 'chapter');
+        const verses = toks.filter(t => t && t.k === 'verse');
+        // Esther: 167 verses, 10 chapters, ~3000 words. We tolerate
+        // small drifts in the verse count (the source uses a slightly
+        // different chapter-end accounting than the masoretic text).
+        assert(words.length > 2400 && words.length < 3200,
+            `Esther word count is plausible (got ${words.length}, expected ~2700)`);
+        assert(chapters.length === 10,
+            `Esther has 10 chapter markers (got ${chapters.length})`);
+        assert(verses.length >= 160,
+            `Esther has at least 160 verse markers (got ${verses.length})`);
+        // Chapter markers must be in ascending numerical order.
+        const chapNums = chapters.map(t => t.num);
+        const sorted = [...chapNums].sort((a, b) => a - b);
+        assert(JSON.stringify(chapNums) === JSON.stringify(sorted),
+            `Esther chapter markers are in ascending order ` +
+            `(got [${chapNums.join(',')}])`);
+        // First word: "ויהי" (1:1, "And it came to pass").
+        const firstWord = words[0];
+        const firstStripped = (firstWord.f || '').replace(/[\u0591-\u05C7\u05BD]/g, '');
+        assert(firstStripped === 'ויהי',
+            `first word of Esther is "ויהי" (got "${firstStripped}")`);
+        // Last word: "לכל־זרעו" (10:3, "to all his offspring").
+        // Joined by a maqaf, which the source preserves as part of the
+        // single tokenized "word". We test the trailing form (after the
+        // maqaf) since that's what's most distinctive.
+        const lastWord = words[words.length - 1];
+        const lastStripped = (lastWord.f || '').replace(/[\u0591-\u05C7\u05BD]/g, '');
+        assert(lastStripped.endsWith('זרעו'),
+            `last word of Esther ends with "זרעו" (got "${lastStripped}")`);
+        // Setumah markers should exist (Haman's sons in 9:7-9 use a
+        // distinctive setumah-between-words layout in tikun-style
+        // megillot).
+        const setumot = toks.filter(t => t && t.k === 'setumah');
+        assert(setumot.length > 0,
+            `Esther has at least one setumah marker (got ${setumot.length})`);
+    } else {
+        console.warn('  SKIP: esther.json not present (run build script first)');
+    }
+}
+
+// ---- Shabbat-afternoon roll-forward in _upcomingShabbat ----
+//
+// Spec: when the user opens the app on a Saturday and the local
+// clock is past 12:30 (≈ minha gedola, when the morning Torah
+// reading is over for most communities), `_upcomingShabbat(today)`
+// must return NEXT Saturday — not today — so the home-page
+// "פרשת השבוע" button jumps to next week's parasha. Before noon
+// on Saturday (or any weekday) it must still return today/the
+// next Saturday respectively.
+//
+// We test the helper in isolation by loading calendar.js into a
+// fresh vm.Context where the global Date is a fixed-clock stub.
+{
+    const calJs = readFileSync(
+        resolve(repo, 'assets/html/js/calendar.js'), 'utf8');
+
+    function makeFixedDateClass(fixedISO) {
+        const fixedTime = new Date(fixedISO).getTime();
+        return class extends Date {
+            constructor(...args) {
+                if (args.length === 0) {
+                    super(fixedTime);
+                } else {
+                    super(...args);
+                }
+            }
+            static now() { return fixedTime; }
+        };
+    }
+
+    function runHelper(fixedNowISO, inputISO) {
+        const sandbox = {
+            console,
+            module: { exports: {} },
+            window: undefined,
+            localStorage: undefined,
+            HebcalLib: undefined,
+            Date: makeFixedDateClass(fixedNowISO),
+        };
+        sandbox.global = sandbox;
+        const ctx = vm.createContext(sandbox);
+        vm.runInContext(calJs, ctx);
+        const upcoming = sandbox.module.exports._upcomingShabbat;
+        const input = new sandbox.Date(inputISO);
+        const out = upcoming(input);
+        return out;
+    }
+
+    // 1) Saturday MORNING (10:00) — should return today (the same Sat).
+    //    2026-05-09 was a Saturday.
+    {
+        const r = runHelper('2026-05-09T10:00:00', '2026-05-09T10:00:00');
+        assert(r.getDay() === 6,
+            `Saturday morning: _upcomingShabbat returns a Saturday`);
+        assert(r.toISOString().slice(0, 10) === '2026-05-09',
+            `Saturday morning: returns the SAME Saturday ` +
+            `(got ${r.toISOString().slice(0, 10)})`);
+    }
+    // 2) Saturday AFTERNOON (14:00, past 12:30) — must roll forward
+    //    to NEXT Saturday (2026-05-16).
+    {
+        const r = runHelper('2026-05-09T14:00:00', '2026-05-09T14:00:00');
+        assert(r.getDay() === 6,
+            `Saturday afternoon: _upcomingShabbat returns a Saturday`);
+        assert(r.toISOString().slice(0, 10) === '2026-05-16',
+            `Saturday afternoon (>=12:30): rolls forward to NEXT Sat ` +
+            `(got ${r.toISOString().slice(0, 10)}, expected 2026-05-16)`);
+    }
+    // 3) Saturday EXACTLY at 12:30 — counts as afternoon, rolls forward.
+    {
+        const r = runHelper('2026-05-09T12:30:00', '2026-05-09T12:30:00');
+        assert(r.toISOString().slice(0, 10) === '2026-05-16',
+            `Saturday at exactly 12:30: rolls forward to next Sat ` +
+            `(got ${r.toISOString().slice(0, 10)})`);
+    }
+    // 4) Saturday at 12:29 — still morning, stays on today.
+    {
+        const r = runHelper('2026-05-09T12:29:00', '2026-05-09T12:29:00');
+        assert(r.toISOString().slice(0, 10) === '2026-05-09',
+            `Saturday at 12:29: stays on today's Sat ` +
+            `(got ${r.toISOString().slice(0, 10)})`);
+    }
+    // 5) Friday (any time) — returns tomorrow (Sat).
+    //    2026-05-08 was a Friday.
+    {
+        const r = runHelper('2026-05-08T20:00:00', '2026-05-08T20:00:00');
+        assert(r.toISOString().slice(0, 10) === '2026-05-09',
+            `Friday evening: returns the upcoming Saturday ` +
+            `(got ${r.toISOString().slice(0, 10)})`);
+    }
+    // 6) Sunday — returns next Saturday (six days out).
+    //    2026-05-10 was a Sunday.
+    {
+        const r = runHelper('2026-05-10T08:00:00', '2026-05-10T08:00:00');
+        assert(r.toISOString().slice(0, 10) === '2026-05-16',
+            `Sunday: returns next Saturday ` +
+            `(got ${r.toISOString().slice(0, 10)})`);
+    }
+    // 7) Saturday afternoon, but caller passes an INPUT date that is
+    //    NOT today — the strict "Saturday-of-input" answer must be
+    //    preserved (no roll-forward), since this is how
+    //    getUpcomingSpecialDays() resolves the parasha for a future
+    //    event whose date happens to be a Saturday.
+    {
+        const fixedNow = '2026-05-09T14:00:00';        // Sat afternoon
+        const future = '2026-05-23T08:00:00';          // a future Sat
+        const r = runHelper(fixedNow, future);
+        assert(r.toISOString().slice(0, 10) === '2026-05-23',
+            `non-today Saturday input keeps strict mapping ` +
+            `(got ${r.toISOString().slice(0, 10)}, expected 2026-05-23)`);
+    }
+}
+
 console.log(`\n--- ${passes} passed, ${fails} failed ---`);
 process.exit(fails === 0 ? 0 : 1);

@@ -41,7 +41,14 @@ var GLOBALS_KEY = 'tk_globals';
 // Bumped from 'tk_lastColumn' (Phase 2/3) -> 'tk_lastColumn_v2' (Phase 4)
 // since switching to the 245-column Davidovich layout invalidates any
 // previously-saved column index.
-var POS_KEY = 'tk_lastColumn_v2';
+// Default POS_KEY for the Torah view. Pages that reuse this engine
+// for a different corpus (e.g. megilla.html for Megilat Esther) set
+// `window.__POS_KEY_OVERRIDE__` BEFORE this script is loaded so the
+// last-read column for each corpus is remembered independently and
+// doesn't clobber the user's spot in the Torah scroll.
+var POS_KEY = (typeof window !== 'undefined' && window.__POS_KEY_OVERRIDE__)
+    ? window.__POS_KEY_OVERRIDE__
+    : 'tk_lastColumn_v2';
 var DEFAULT_GLOBALS = { nikud: true, taam: true };
 
 function getGlobals() {
@@ -170,6 +177,86 @@ function refreshAllWords() {
     syncOverrideHighlights();
 }
 
+// Find the topmost word currently visible in the reading viewport.
+// Used by repackPreservingPosition() to re-anchor the scroll after a
+// re-pack so the user keeps reading from the same spot. We pick the
+// first word whose top edge sits at or below the stage's top minus
+// a small slop (so a word that's only half-clipped at the top still
+// counts -- we'd rather snap UP a hair than lose the user's place).
+function findTopmostVisibleTokenIdx() {
+    var stage = document.getElementById('readStage');
+    if (!stage || typeof stage.getBoundingClientRect !== 'function') {
+        return null;
+    }
+    var stageTop = stage.getBoundingClientRect().top;
+    var words = (typeof stage.querySelectorAll === 'function')
+        ? stage.querySelectorAll('[data-tok-idx]')
+        : null;
+    if (!words || !words.length) return null;
+    var best = null;
+    var bestDist = Infinity;
+    for (var i = 0; i < words.length; i++) {
+        if (typeof words[i].getBoundingClientRect !== 'function') continue;
+        var rect = words[i].getBoundingClientRect();
+        // Skip words still entirely above the viewport (clipped) by
+        // more than a line-height.
+        if (rect.bottom < stageTop - 4) continue;
+        var dist = Math.abs(rect.top - stageTop);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = words[i];
+        }
+        // Past the top by a clear margin -> we've found the anchor;
+        // no need to keep scanning further down the column.
+        if (rect.top > stageTop + 4) break;
+    }
+    if (!best) return null;
+    var ti = parseInt(best.getAttribute('data-tok-idx'), 10);
+    return Number.isFinite(ti) ? ti : null;
+}
+
+// Re-pack and re-render the current column at the user's current
+// scroll position. Used by toggle and tap handlers, where the
+// per-mode glyph metrics change (with/without ta'amim, with/without
+// nikud) so word widths shift -- which means line breaks, last-line
+// justification, and the busiest-line-driven font size all need
+// recalculation. Without this re-pack the existing layout is stale
+// against the new metrics and lines visibly overflow / underflow.
+//
+// We anchor the post-re-pack scroll on the topmost visible word
+// (captured BEFORE the re-render) so the user keeps reading from
+// the same spot -- modulo a line or two of natural drift when the
+// re-pack happens to push that word onto a different line.
+//
+// Headless / test harness: when getBoundingClientRect isn't
+// available on the stage (no real layout engine, e.g. our Node
+// fake DOM), we fall back to the cheap in-place refreshAllWords()
+// path. Re-packing without measurements wouldn't produce a valid
+// layout anyway, and rebuilding the DOM in tests would orphan the
+// element references the tests hold.
+function repackPreservingPosition() {
+    if (typeof COLUMN_IDX !== 'number' || !COLUMNS) {
+        refreshAllWords();
+        return;
+    }
+    var stage = (typeof document !== 'undefined' && document.getElementById)
+        ? document.getElementById('readStage') : null;
+    var canMeasure = stage
+        && typeof stage.getBoundingClientRect === 'function';
+    if (!canMeasure) {
+        refreshAllWords();
+        return;
+    }
+    var anchor = findTopmostVisibleTokenIdx();
+    // Force the global-font-size cache to rebuild so the busiest line
+    // is re-measured under the new mode (a stam-only column has way
+    // more horizontal slack than a full-vocalized one, so the font
+    // can grow / shrink accordingly).
+    GLOBAL_FONT_SIZE = 0;
+    GLOBAL_FONT_AVAIL_WIDTH = 0;
+    renderColumn(COLUMN_IDX, anchor === null ? undefined : anchor);
+}
+
 function syncOverrideHighlights() {
     var words = document.getElementsByClassName('word');
     for (var j = 0; j < words.length; j++) {
@@ -198,11 +285,21 @@ function syncToggleBar() {
     }
 }
 
+// Top-bar nikud / ta'am toggles. Mode change shifts EVERY word's
+// rendered width (with / without nikud, with / without ta'amim), so
+// after flipping the global flag we re-pack the current column --
+// not just rewrite text inside the existing word spans, which would
+// leave line breaks and last-line justification stale (lines
+// visibly overflow or come up short until the user reloads).
 function toggleNikud() {
-    var g = getGlobals(); g.nikud = !g.nikud; setGlobals(g); refreshAllWords();
+    var g = getGlobals(); g.nikud = !g.nikud; setGlobals(g);
+    syncToggleBar();
+    repackPreservingPosition();
 }
 function toggleTaam() {
-    var g = getGlobals(); g.taam = !g.taam; setGlobals(g); refreshAllWords();
+    var g = getGlobals(); g.taam = !g.taam; setGlobals(g);
+    syncToggleBar();
+    repackPreservingPosition();
 }
 function clearAllOverrides() {
     VERSE_OV = {};
@@ -211,7 +308,7 @@ function clearAllOverrides() {
         words[j].removeAttribute('data-ov-nikud');
         words[j].removeAttribute('data-ov-taam');
     }
-    refreshAllWords();
+    repackPreservingPosition();
 }
 
 // Cycle the visible mode of a single word through:
@@ -271,15 +368,28 @@ function cycleWordMode(wordEl) {
                                     : WORD_CYCLE.indexOf('stam');
     }
     var next = WORD_CYCLE[(idx + 1) % WORD_CYCLE.length];
+    // First, persist the chosen override on the tapped word. We
+    // pre-compute the verse key so we can find this word again
+    // AFTER the column re-pack rebuilds the DOM.
+    var key = verseKeyFromWord(wordEl);
+    var ti = wordEl.getAttribute('data-tok-idx');
     applyModeToWord(wordEl, next);
+    // Then re-pack the column. A single-word width change can ripple
+    // through the line it lives on (and any line after it whose
+    // contents shifted), so the previous "in-place" approach left
+    // visibly broken justification on the affected lines until
+    // reload. The re-pack also keeps the global font-size in sync
+    // when the busiest line was the one this word sits on.
+    repackPreservingPosition();
     return next;
 }
 
 function clearWordOverride(wordEl) {
     wordEl.removeAttribute('data-ov-nikud');
     wordEl.removeAttribute('data-ov-taam');
-    applyDisplayToWord(wordEl, getGlobals());
-    syncOverrideHighlights();
+    // Drop the per-word override and re-pack so the line and
+    // last-line justification snap back to the inherited mode.
+    repackPreservingPosition();
 }
 
 // Cycle the visible mode of a whole verse (addressed by chapter:verse)
@@ -309,13 +419,13 @@ function cycleVerseModeByKey(verseKey) {
     if (Object.keys(rec).length === 0) delete VERSE_OV[verseKey];
     else VERSE_OV[verseKey] = rec;
 
-    var words = document.getElementsByClassName('word');
-    for (var i = 0; i < words.length; i++) {
-        if (verseKeyFromWord(words[i]) === verseKey) {
-            applyDisplayToWord(words[i], g);
-        }
-    }
-    syncOverrideHighlights();
+    // Re-pack the column. Verse-level cycling toggles ta'amim/nikud
+    // for every word in the verse at once, which shifts widths across
+    // a whole pasuk -- the lines those words live on need new packing
+    // and the global busiest-line font size may move. The renderer
+    // re-reads VERSE_OV during makeWordEl/applyDisplayToWord so the
+    // override persists across the rebuild.
+    repackPreservingPosition();
     return next;
 }
 
@@ -2575,6 +2685,15 @@ function goReadAtParasha(parashaName) {
     // Defer until torah.json is loaded; index page can also pre-resolve
     // for known parshiot via the calendar map. For now, send via query.
     window.location.href = './read.html?parasha=' + encodeURIComponent(parashaName);
+}
+
+// Open the dedicated Megilat Esther reader. Esther uses a separate
+// HTML page (megilla.html) that loads esther.js / esther_layout.js
+// instead of the Torah data, but reuses the same column-rendering
+// engine. Last-read column for the megillah is stored under its own
+// localStorage key so it doesn't fight with the Torah position.
+function goReadMegilla() {
+    window.location.href = './megilla.html';
 }
 
 // Jump to a specific verse reference, e.g. "Bereshit:21:1". Used by
