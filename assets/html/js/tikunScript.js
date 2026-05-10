@@ -190,10 +190,16 @@ function refreshAllWords() {
 // Find the topmost word currently visible in the reading viewport.
 // Used by repackPreservingPosition() to re-anchor the scroll after a
 // re-pack so the user keeps reading from the same spot. We pick the
-// first word whose top edge sits at or below the stage's top minus
-// a small slop (so a word that's only half-clipped at the top still
-// counts -- we'd rather snap UP a hair than lose the user's place).
-function findTopmostVisibleTokenIdx() {
+// topmost word that's still in (or near) the viewport and remember
+// BOTH its token index AND its y-offset relative to the stage's top
+// edge. After the re-pack, repackPreservingPosition() restores the
+// scroll so this same word lands at the same y -- without that
+// offset, scrollColumnToToken() pins the anchor's line to the very
+// top of the stage and the user sees the page jump up by however
+// far the anchor was from the top before the tap.
+//
+// Returns null in headless / non-DOM-measure environments.
+function findTopmostVisibleAnchor() {
     var stage = document.getElementById('readStage');
     if (!stage || typeof stage.getBoundingClientRect !== 'function') {
         return null;
@@ -222,7 +228,22 @@ function findTopmostVisibleTokenIdx() {
     }
     if (!best) return null;
     var ti = parseInt(best.getAttribute('data-tok-idx'), 10);
-    return Number.isFinite(ti) ? ti : null;
+    if (!Number.isFinite(ti)) return null;
+    // y-offset of the word's top edge relative to the stage's top
+    // edge. Could be negative if the word is partially clipped at
+    // the top -- repackPreservingPosition() will faithfully restore
+    // that, so a half-visible top word stays half-visible.
+    var bestRect = best.getBoundingClientRect();
+    return {
+        tokIdx: ti,
+        yOffset: bestRect.top - stageTop,
+    };
+}
+
+// Back-compat shim for any caller that just wants the token index.
+function findTopmostVisibleTokenIdx() {
+    var a = findTopmostVisibleAnchor();
+    return a ? a.tokIdx : null;
 }
 
 // Re-pack and re-render the current column at the user's current
@@ -257,14 +278,47 @@ function repackPreservingPosition() {
         refreshAllWords();
         return;
     }
-    var anchor = findTopmostVisibleTokenIdx();
+    var anchor = findTopmostVisibleAnchor();
     // Force the global-font-size cache to rebuild so the busiest line
     // is re-measured under the new mode (a stam-only column has way
     // more horizontal slack than a full-vocalized one, so the font
     // can grow / shrink accordingly).
     GLOBAL_FONT_SIZE = 0;
     GLOBAL_FONT_AVAIL_WIDTH = 0;
-    renderColumn(COLUMN_IDX, anchor === null ? undefined : anchor);
+    // Don't pass the token index to renderColumn(): its built-in
+    // scrollColumnToToken() pins the anchor's line 8px below the
+    // stage top, which yanks the page UP (the user reads this as
+    // a scroll-jump after every tap). We restore the y-offset
+    // ourselves so the same word stays at the same y.
+    renderColumn(COLUMN_IDX);
+    if (!anchor) return;
+    function pinAnchor() {
+        var stage2 = document.getElementById('readStage');
+        if (!stage2 || typeof stage2.getBoundingClientRect !== 'function') return;
+        var target = document.querySelector(
+            '#readColumn [data-tok-idx="' + anchor.tokIdx + '"]');
+        if (!target || typeof target.getBoundingClientRect !== 'function') return;
+        var stageRect = stage2.getBoundingClientRect();
+        var targetRect = target.getBoundingClientRect();
+        // Where is the anchor now relative to the stage's top? Add
+        // the delta to scrollTop so it lands back at the stored
+        // pre-tap y. Positive delta -> scroll DOWN (the anchor is
+        // currently HIGHER than where it was -> we need to push it
+        // back down by scrolling further).
+        var delta = (targetRect.top - stageRect.top) - anchor.yOffset;
+        if (Math.abs(delta) > 0.5) stage2.scrollTop += delta;
+    }
+    // Match renderColumn()'s own three-phase scroll schedule so we
+    // win the race against its scrollColumnToToken() callers (this
+    // function passed no scrollToTokenIdx, so renderColumn won't
+    // schedule any -- but the post-font refit also moves lines, so
+    // we re-pin then too).
+    setTimeout(pinAnchor, 0);
+    if (typeof document !== 'undefined' && document.fonts &&
+        document.fonts.ready) {
+        document.fonts.ready.then(pinAnchor);
+    }
+    setTimeout(pinAnchor, 350);
 }
 
 function syncOverrideHighlights() {
