@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- Pre-Flutter splash background. Solid parchment (#F4ECD8), the
+     same colour the HTML splash (indexIntro.html) paints, so the
+     Android launch window, the Flutter NormalTheme window, and our
+     HTML splash all read as one continuous parchment screen. No
+     white flash, no app-icon overlay before our title text. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/parchment" />
 </layer-list>

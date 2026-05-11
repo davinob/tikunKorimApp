@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A fully transparent drawable used as the Android-12+ SplashScreen
+     "animated icon". We deliberately pass an invisible icon so the
+     SplashScreen shows ONLY the parchment background, not the app
+     launcher icon overlaid on top of it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+    <size android:width="1dp" android:height="1dp" />
+</shape>

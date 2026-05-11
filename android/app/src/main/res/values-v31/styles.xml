@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) introduced a system-wide SplashScreen API
+  that ALWAYS overlays the app launcher icon on top of whatever
+  windowBackground we set, for ~500ms before the activity draws.
+  This caused a brown-scroll-icon flash to appear before our HTML
+  parchment splash (indexIntro.html), which the user found ugly.
+
+  This v31 override:
+    1. Replaces the splash background with our parchment colour, so
+       it matches the HTML splash that comes immediately after.
+    2. Replaces the splash "animated icon" with a fully transparent
+       drawable, so NO icon is overlaid; the user sees a solid
+       parchment screen from the very first frame.
+-->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/parchment</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_transparent</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/parchment</item>
+    </style>
+</resources>

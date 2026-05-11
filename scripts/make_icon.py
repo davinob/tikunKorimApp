@@ -1,38 +1,31 @@
 #!/usr/bin/env python3
 """Generate the launcher icon for tikunKorimApp.
 
-Design (single 1024x1024 PNG that flutter_launcher_icons fans out into
-all the mipmap densities + the round + adaptive variants):
+Design approach (per the user's request: "take the same image and
+just fill it with the brown color"):
 
-  - Soft parchment background — same color used on the reading page
-    (the "feel" the user sees inside the app).
-  - Two scroll-shaped roller circles framing the page, suggesting an
-    open Sefer Torah viewed from the front.
-  - A single large Hebrew letter — ת — rendered in the StamAshkenazCLM
-    font, the very same scribal style used inside the app for the
-    rendered Torah text. The ת is the last letter of the Hebrew
-    alphabet AND the last letter of the word "תורה", so it reads
-    instantly as "Hebrew sacred-text app" without committing to a
-    long phrase that would shrink unreadably small at the launcher
-    size.
-  - A subtle warm shadow under the letter so it pops at small sizes.
-
-Why a single letter and not a multi-word title:
-  - At the launcher size (48-96px on most devices) any multi-letter
-    Hebrew text (e.g. "תיקון קוראים") becomes a smear. Modern launcher
-    icons are recognised by silhouette + colour, not legible text.
-  - The StamAshkenazCLM ת has a strong, distinctive silhouette
-    (heavy left foot + thin right foot + bar across the top) that
-    survives downscaling and reads as "Torah scroll text" even at
-    small sizes.
-
-We also emit the adaptive-icon FOREGROUND layer (the same letter on
-a transparent background, scaled into the safe zone — Android crops
-adaptive icons to a 66dp inner circle / squircle / etc. depending on
-the launcher, so the foreground must live inside the central 66% of
-the canvas). The flutter_launcher_icons package handles wiring this
-into res/mipmap-anydpi-v26/ic_launcher.xml + the corresponding XML
-drawable + a background colour resource.
+  - Source: the existing learnTorahApp launcher icon
+    (`ic_launcher.png` from its `mipmap-xxxhdpi` folder), which is
+    a Sefer-Torah-scroll silhouette composed of two rectangular
+    rollers + a parchment page with horizontal text strokes, drawn
+    in a flat blue (#3F51F5-ish).
+  - Transformation: keep the silhouette pixel-for-pixel identical
+    so the three sibling apps (learnTorah / learnTanah / tikun)
+    read as one design family. Re-colour every "blue" pixel to a
+    saddle/walnut brown to differentiate the tikun reader, while
+    leaving the white/transparent pixels alone.
+  - Upscale the recoloured 192x192 source to 1024x1024 using
+    Pillow's LANCZOS resampler, which preserves the crisp edges
+    of the rectangular shapes.
+  - Emit:
+      assets/icon/ic_launcher.png            (1024x1024 full icon)
+      assets/icon/ic_launcher_foreground.png (1024x1024 adaptive
+                                              foreground, scaled into
+                                              the central 66% safe
+                                              zone with a transparent
+                                              outer ring)
+      assets/icon/play_store_icon_512.png    (512x512 store icon)
+      assets/icon/play_feature_graphic_1024x500.png (banner)
 """
 from __future__ import annotations
 from pathlib import Path
@@ -42,257 +35,130 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "icon"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Source font: same Stam font used inside the reader (so the icon's
-# letter and the words on the reading page feel like one design).
-FONT_PATH = ROOT / "assets" / "html" / "fonts" / "StamAshkenazCLM.ttf"
+# Source silhouette: the learnTorahApp scroll icon. Highest-res copy
+# we have on disk is the 192x192 xxxhdpi mipmap; we upscale.
+SOURCE_ICON = (
+    ROOT.parent
+    / "learnTorahApp"
+    / "android"
+    / "app"
+    / "src"
+    / "main"
+    / "res"
+    / "mipmap-xxxhdpi"
+    / "ic_launcher.png"
+)
 
-# Brand palette:
-#   - parchment (#F4ECD8): the colour of `--colorParchment` in stylesTikun.css.
-#   - ink (#2A1A0A): the dark warm brown of `--colorScrollInk`.
-#   - accent gold (#B07B2D): used for verse numbers / aliyah labels.
+# Brand palette: brown for tikun (vs. blue for Torah, green for Tanah).
+# Saddle/walnut brown that reads warmly against parchment-cream and
+# also against pure white.
+BROWN = (101, 67, 33, 255)
 PARCHMENT = (244, 236, 216, 255)
 INK = (42, 26, 10, 255)
 GOLD = (176, 123, 45, 255)
-ROLLER = (101, 67, 33, 255)  # dark walnut for the scroll rollers
+
+FONT_PATH = ROOT / "assets" / "html" / "fonts" / "StamAshkenazCLM.ttf"
+
+
+def _recolor_to_brown(src: Image.Image) -> Image.Image:
+    """Replace every silhouette pixel with full-saturation brown,
+    using the original pixel's "darkness" (1 - lightness) as the
+    output alpha. White / very-light pixels become fully transparent;
+    deep-blue interior pixels become fully opaque brown. This keeps
+    edge antialiasing crisp without desaturating the interior, since
+    every silhouette pixel is the SAME brown -- only its opacity
+    changes along the antialiased edge."""
+    src = src.convert("RGBA")
+    out = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    pa = src.load()
+    pb = out.load()
+    br, bg, bb, _ = BROWN
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, a = pa[x, y]
+            if a < 5:
+                # Already transparent; leave it.
+                pb[x, y] = (0, 0, 0, 0)
+                continue
+            # Compute "ink coverage": how dark / non-white this
+            # pixel is. 0 = pure white background, 255 = pure
+            # silhouette interior. We use the minimum channel as
+            # the proxy for darkness (works for both white-on-blue
+            # and white-on-anything backgrounds), which gives a
+            # smooth falloff at antialiased edges.
+            mn = min(r, g, b)
+            coverage = 255 - mn
+            if coverage < 8:
+                pb[x, y] = (0, 0, 0, 0)
+            else:
+                pb[x, y] = (br, bg, bb, min(255, coverage * a // 255))
+    return out
+
+
+def _load_recoloured(target: int = 1024) -> Image.Image:
+    """Load the source learnTorahApp icon, recolour to brown, and
+    upscale to `target`x`target` pixels with LANCZOS."""
+    if not SOURCE_ICON.exists():
+        raise FileNotFoundError(
+            f"Source icon not found at {SOURCE_ICON}. This script "
+            f"depends on the learnTorahApp repo being a sibling of "
+            f"tikunKorimApp on disk."
+        )
+    src = Image.open(SOURCE_ICON).convert("RGBA")
+    rec = _recolor_to_brown(src)
+    return rec.resize((target, target), Image.LANCZOS)
 
 
 def make_full_icon(size: int = 1024) -> Image.Image:
-    """The full 1024x1024 launcher icon (background + foreground in
-    one image). Used for the legacy square mipmap-{m,h,xh,xxh,xxxh}dpi
-    PNGs and as the Play Store 512x512 store icon (downscaled)."""
-    img = Image.new("RGBA", (size, size), PARCHMENT)
-    draw = ImageDraw.Draw(img)
-
-    # ---- Scroll silhouette ----
-    # Two circular roller-caps top & bottom give the icon a "scroll
-    # framed by wood" silhouette without trying to draw fiddly handles
-    # at icon resolution (anything thinner than ~1.5% of the icon
-    # disappears at 48px).
-    roller_h = int(size * 0.13)
-    draw.rectangle((0, 0, size, roller_h), fill=ROLLER)
-    draw.rectangle((0, size - roller_h, size, size), fill=ROLLER)
-    # Highlight strip on each roller.
-    hl = int(roller_h * 0.18)
-    draw.rectangle(
-        (0, roller_h - hl - 2, size, roller_h - 2),
-        fill=(132, 92, 50, 255),
-    )
-    draw.rectangle(
-        (0, size - roller_h, size, size - roller_h + hl),
-        fill=(132, 92, 50, 255),
-    )
-
-    # ---- Central Hebrew letter ת ----
-    letter = "ת"
-    # Pick the largest font size that fits inside the central
-    # parchment band with a comfortable margin. We binary-search
-    # because Stam fonts have unusual metrics (very tall ascenders,
-    # short descenders) and Pillow's default sizing doesn't match
-    # the bbox the user actually perceives.
-    band_h = size - 2 * roller_h
-    target_h = int(band_h * 0.74)
-    target_w = int(size * 0.62)
-
-    def fits(font_size: int) -> bool:
-        f = ImageFont.truetype(str(FONT_PATH), font_size)
-        bbox = f.getbbox(letter)
-        w = bbox[2] - bbox[0]
-        h = bbox[3] - bbox[1]
-        return w <= target_w and h <= target_h
-
-    lo, hi = 100, 2000
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if fits(mid):
-            lo = mid
-        else:
-            hi = mid - 1
-    font_size = lo
-    font = ImageFont.truetype(str(FONT_PATH), font_size)
-
-    bbox = font.getbbox(letter)
-    lw = bbox[2] - bbox[0]
-    lh = bbox[3] - bbox[1]
-    # Center inside the central band.
-    cx = (size - lw) // 2 - bbox[0]
-    cy = roller_h + (band_h - lh) // 2 - bbox[1]
-
-    # Subtle warm shadow under the letter so it pops at 48px.
-    shadow_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow_layer)
-    sd.text((cx + int(size * 0.012), cy + int(size * 0.018)),
-            letter, font=font, fill=(0, 0, 0, 90))
-    shadow_layer = shadow_layer.filter(
-        ImageFilter.GaussianBlur(radius=int(size * 0.012)))
-    img.alpha_composite(shadow_layer)
-
-    # The letter itself.
-    draw = ImageDraw.Draw(img)
-    draw.text((cx, cy), letter, font=font, fill=INK)
-
-    # ---- Thin gold inner frame ----
-    # Echoes the gutter / aliyah-label gold inside the reader.
-    inset = int(size * 0.045)
-    frame_h = max(2, int(size * 0.005))
-    draw.rectangle(
-        (inset, roller_h + inset // 2,
-         size - inset, roller_h + inset // 2 + frame_h),
-        fill=GOLD,
-    )
-    draw.rectangle(
-        (inset, size - roller_h - inset // 2 - frame_h,
-         size - inset, size - roller_h - inset // 2),
-        fill=GOLD,
-    )
-    return img
+    """Full launcher icon: brown scroll silhouette on white."""
+    icon = _load_recoloured(size)
+    bg = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    bg.alpha_composite(icon)
+    return bg
 
 
 def make_adaptive_foreground(size: int = 1024) -> Image.Image:
-    """Adaptive-icon foreground (Android 8+).
+    """Adaptive foreground (Android 8+).
 
-    Android adaptive icons are 108dp, of which only the central 66dp
-    is guaranteed visible (the launcher crops the outer 21dp ring as
-    a circle / squircle / teardrop / etc.). We render the letter at
-    the same size as the legacy icon but on a TRANSPARENT
-    background, with the same gold frame strips and a very thin
-    parchment-coloured fill BEHIND the letter to keep stroke contrast
-    when launchers compose it over the brown background colour.
-    """
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-
-    # Safe zone = central 66% of the canvas. Anything outside may be
-    # cropped by the launcher.
-    safe = int(size * 0.66)
-    safe_off = (size - safe) // 2
-
-    # Soft parchment circle as the visible "scroll page".
-    page = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    pd = ImageDraw.Draw(page)
-    pd.ellipse(
-        (safe_off, safe_off, safe_off + safe, safe_off + safe),
-        fill=PARCHMENT,
-    )
-    img.alpha_composite(page)
-
-    # Gold frame ring just inside the safe edge.
-    rd = ImageDraw.Draw(img)
-    ring_w = max(3, int(size * 0.012))
-    rd.ellipse(
-        (safe_off, safe_off, safe_off + safe, safe_off + safe),
-        outline=GOLD, width=ring_w,
-    )
-
-    # Letter ת sized to fit the safe circle.
-    letter = "ת"
-    target = int(safe * 0.66)
-
-    def fits(font_size: int) -> bool:
-        f = ImageFont.truetype(str(FONT_PATH), font_size)
-        b = f.getbbox(letter)
-        return (b[2] - b[0]) <= target and (b[3] - b[1]) <= target
-
-    lo, hi = 100, 2000
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if fits(mid):
-            lo = mid
-        else:
-            hi = mid - 1
-    font = ImageFont.truetype(str(FONT_PATH), lo)
-    bbox = font.getbbox(letter)
-    lw = bbox[2] - bbox[0]
-    lh = bbox[3] - bbox[1]
-    cx = (size - lw) // 2 - bbox[0]
-    cy = (size - lh) // 2 - bbox[1]
-
-    # Shadow + letter.
-    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.text((cx + int(size * 0.012), cy + int(size * 0.018)),
-            letter, font=font, fill=(0, 0, 0, 80))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=int(size * 0.012)))
-    img.alpha_composite(shadow)
-
-    rd2 = ImageDraw.Draw(img)
-    rd2.text((cx, cy), letter, font=font, fill=INK)
-    return img
+    Android adaptive icons are composed of background + foreground
+    layers. The foreground is 108dp, of which only the central 66dp
+    is guaranteed visible (the launcher crops the outer 21dp ring).
+    We draw the recoloured scroll into the central ~66% of the
+    canvas on a fully transparent ground, so the launcher shows the
+    scroll on top of whatever background colour pubspec.yaml
+    configures (white)."""
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    inner = int(size * 0.66)
+    inset = (size - inner) // 2
+    icon = _load_recoloured(inner)
+    canvas.alpha_composite(icon, (inset, inset))
+    return canvas
 
 
 def make_feature_graphic(width: int = 1024, height: int = 500) -> Image.Image:
     """Play Store feature graphic (REQUIRED, 1024x500 PNG/JPEG).
 
-    This is the wide banner that sits at the top of the store listing
-    page on phones (and is also used for promo placements). The Play
-    Console rejects anything that isn't exactly 1024x500. We mirror
-    the launcher-icon palette and place the same Stam ת on the right
-    edge with the app name in Hebrew + English to its left -- this
-    way the banner reads as part of the same brand even when shown
-    next to the launcher icon.
-    """
-    img = Image.new("RGBA", (width, height), PARCHMENT)
+    Uses the same palette as the launcher icon: white background,
+    brown scroll silhouette on the right (RTL "starting" side for a
+    Hebrew-language app), and the title in Hebrew + English on the
+    left."""
+    img = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    # Walnut top + bottom strip for the Sefer-Torah-roller motif.
-    strip = int(height * 0.13)
-    draw.rectangle((0, 0, width, strip), fill=ROLLER)
-    draw.rectangle((0, height - strip, width, height), fill=ROLLER)
-    draw.rectangle((0, strip - 4, width, strip), fill=(132, 92, 50, 255))
-    draw.rectangle((0, height - strip, width, height - strip + 4),
-                   fill=(132, 92, 50, 255))
+    icon_h = int(height * 0.86)
+    icon_y = (height - icon_h) // 2
+    icon = _load_recoloured(icon_h)
+    img.alpha_composite(icon, (width - icon_h - int(width * 0.05), icon_y))
 
-    # ת on the right edge (RTL: the visual "starting" side for Hebrew).
-    letter = "ת"
-    target_h = int((height - 2 * strip) * 0.85)
-
-    def fits(font_size: int) -> bool:
-        f = ImageFont.truetype(str(FONT_PATH), font_size)
-        b = f.getbbox(letter)
-        return (b[3] - b[1]) <= target_h
-
-    lo, hi = 100, 1500
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if fits(mid):
-            lo = mid
-        else:
-            hi = mid - 1
-    font_letter = ImageFont.truetype(str(FONT_PATH), lo)
-    bbox = font_letter.getbbox(letter)
-    lw = bbox[2] - bbox[0]
-    lh = bbox[3] - bbox[1]
-    cx = width - lw - bbox[0] - int(width * 0.07)
-    cy = strip + ((height - 2 * strip) - lh) // 2 - bbox[1]
-    # Shadow.
-    shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.text((cx + 8, cy + 12), letter, font=font_letter, fill=(0, 0, 0, 80))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=10))
-    img.alpha_composite(shadow)
-    draw = ImageDraw.Draw(img)
-    draw.text((cx, cy), letter, font=font_letter, fill=INK)
-
-    # Title block on the LEFT (LTR text fits left-aligned into the
-    # space the ת doesn't occupy on the right).
     drugulin = ROOT / "assets" / "html" / "fonts" / "DrugulinCLM-Bold.otf"
-    title_font = ImageFont.truetype(str(drugulin), int(height * 0.22))
+    title_font = ImageFont.truetype(str(drugulin), int(height * 0.20))
     sub_font = ImageFont.truetype(str(drugulin), int(height * 0.10))
 
-    # Pillow draws codepoints in the source order without applying
-    # BiDi reordering. To get a Hebrew phrase to read correctly
-    # (right-to-left) on a left-to-right canvas, we reverse BOTH
-    # word order AND each word's letters: the first visible word on
-    # the right edge must be drawn last (i.e. rightmost in the
-    # source), and the letters of each word must be flipped so that
-    # the canvas's left-to-right scan produces the correct RTL
-    # reading. Reversing the entire string at once does both at
-    # once. (Words with combining nikud / te'amim would need a full
-    # BiDi pass, but the title is plain consonants only.)
     title_he = "תיקון קוראים"[::-1]
     title_en = "Tikun Korim"
     sub = "Learn the cantillation"
 
-    # Position at left, vertically centered around the band.
-    x0 = int(width * 0.08)
+    x0 = int(width * 0.06)
     title_he_bbox = title_font.getbbox(title_he)
     th = title_he_bbox[3] - title_he_bbox[1]
     title_en_bbox = title_font.getbbox(title_en)
@@ -300,10 +166,10 @@ def make_feature_graphic(width: int = 1024, height: int = 500) -> Image.Image:
     sub_bbox = sub_font.getbbox(sub)
     sh = sub_bbox[3] - sub_bbox[1]
     block_h = th + 16 + teh + 24 + sh
-    y0 = strip + ((height - 2 * strip) - block_h) // 2 - title_he_bbox[1]
-    draw.text((x0, y0), title_he, font=title_font, fill=INK)
+    y0 = (height - block_h) // 2 - title_he_bbox[1]
+    draw.text((x0, y0), title_he, font=title_font, fill=BROWN)
     y1 = y0 + th + 16 - title_en_bbox[1] + title_he_bbox[1]
-    draw.text((x0, y1), title_en, font=title_font, fill=INK)
+    draw.text((x0, y1), title_en, font=title_font, fill=BROWN)
     y2 = y1 + teh + 24 - sub_bbox[1] + title_en_bbox[1]
     draw.text((x0, y2), sub, font=sub_font, fill=GOLD)
     return img
@@ -313,22 +179,50 @@ def main() -> int:
     print(f"Generating launcher icons under {OUT_DIR}")
     full = make_full_icon(1024)
     full.save(OUT_DIR / "ic_launcher.png", "PNG")
-    print(f"  ic_launcher.png  1024x1024  {(OUT_DIR / 'ic_launcher.png').stat().st_size} bytes")
+    print(
+        f"  ic_launcher.png  1024x1024  "
+        f"{(OUT_DIR / 'ic_launcher.png').stat().st_size} bytes"
+    )
 
     fg = make_adaptive_foreground(1024)
     fg.save(OUT_DIR / "ic_launcher_foreground.png", "PNG")
-    print(f"  ic_launcher_foreground.png  1024x1024  {(OUT_DIR / 'ic_launcher_foreground.png').stat().st_size} bytes")
+    print(
+        f"  ic_launcher_foreground.png  1024x1024  "
+        f"{(OUT_DIR / 'ic_launcher_foreground.png').stat().st_size} bytes"
+    )
 
-    # Play Store hi-res icon: same image, downscaled to 512x512 with
-    # the high-quality LANCZOS resampler. The Play Console rejects
-    # hi-res icons that aren't EXACTLY 512x512 PNG / JPEG.
     play = full.resize((512, 512), Image.LANCZOS)
     play.save(OUT_DIR / "play_store_icon_512.png", "PNG")
-    print(f"  play_store_icon_512.png  512x512  {(OUT_DIR / 'play_store_icon_512.png').stat().st_size} bytes")
+    print(
+        f"  play_store_icon_512.png  512x512  "
+        f"{(OUT_DIR / 'play_store_icon_512.png').stat().st_size} bytes"
+    )
 
-    feat = make_feature_graphic(1024, 500)
-    feat.save(OUT_DIR / "play_feature_graphic_1024x500.png", "PNG")
-    print(f"  play_feature_graphic_1024x500.png  1024x500  {(OUT_DIR / 'play_feature_graphic_1024x500.png').stat().st_size} bytes")
+    # Feature graphic: render at 2x (2048x1000) for retina-quality
+    # downscaling, then flatten alpha to a flat-white RGB image so
+    # Play Console accepts it (Play rejects PNGs with an alpha
+    # channel on the feature-graphic field with the misleading
+    # error "You can't select or crop this image because it's too
+    # small"). We save BOTH:
+    #   - play_feature_graphic_1024x500.png  (the spec size)
+    #   - play_feature_graphic_2048x1000.png (a doubled version
+    #     in case Play Console asks for a high-DPI source on
+    #     particular screen densities)
+    # Both are flat-RGB JPEG-equivalents wrapped in PNG.
+    feat = make_feature_graphic(2048, 1000)
+    flat = Image.new("RGB", feat.size, (255, 255, 255))
+    flat.paste(feat, mask=feat.split()[3] if feat.mode == "RGBA" else None)
+    flat.save(OUT_DIR / "play_feature_graphic_2048x1000.png", "PNG")
+    print(
+        f"  play_feature_graphic_2048x1000.png  2048x1000  "
+        f"{(OUT_DIR / 'play_feature_graphic_2048x1000.png').stat().st_size} bytes"
+    )
+    flat_small = flat.resize((1024, 500), Image.LANCZOS)
+    flat_small.save(OUT_DIR / "play_feature_graphic_1024x500.png", "PNG")
+    print(
+        f"  play_feature_graphic_1024x500.png  1024x500  "
+        f"{(OUT_DIR / 'play_feature_graphic_1024x500.png').stat().st_size} bytes"
+    )
     return 0
 
 

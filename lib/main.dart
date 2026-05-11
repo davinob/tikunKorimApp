@@ -117,7 +117,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       supportZoom: false,
       javaScriptEnabled: true,
       cacheEnabled: false,
-      textZoom: Platform.isAndroid ? 170 : 100,
+      textZoom: 100,
     );
 
     return InAppWebView(

@@ -145,7 +145,19 @@ function applyDisplayToWord(span, g) {
     var nikudOn = resolveAxis(span, 'nikud', g.nikud);
     var taamOn  = resolveAxis(span, 'taam',  g.taam);
     var mode = modeFromAxes(nikudOn, taamOn);
-    var val = span.getAttribute(ATTR[mode]);
+    var val;
+    if (mode === 'stam') {
+        // Plain consonants: prefer the kethiv (scroll spelling) when
+        // we have it -- this is the text the reader actually sees on
+        // the parchment. Falls back to `data-s` (the qere's plain
+        // consonants) for the vast majority of words where kethiv
+        // and qere are letter-identical and we therefore don't
+        // bother stamping `data-ket`.
+        val = span.getAttribute('data-ket');
+        if (val == null) val = span.getAttribute('data-s');
+    } else {
+        val = span.getAttribute(ATTR[mode]);
+    }
     if (val == null) val = span.getAttribute('data-f') || span.textContent;
     var styLetter = span.getAttribute('data-sty-letter');
     if (styLetter) {
@@ -833,6 +845,7 @@ function renderColumn(idx, scrollToTokenIdx) {
                         var or = oldRows[ri];
                         or.style.letterSpacing = '';
                         or.style.columnGap = '';
+                        or.style.fontSize = '';
                         if (or.classList) {
                             or.classList.remove('sLineKashidaCap');
                             or.classList.remove('sLineKashidaTight');
@@ -913,6 +926,14 @@ function makeWordEl(tk, tokIdx) {
     if (typeof tk.n === 'string') w.setAttribute('data-n', tk.n);
     if (typeof tk.t === 'string') w.setAttribute('data-t', tk.t);
     if (typeof tk.s === 'string') w.setAttribute('data-s', tk.s);
+    // Kri/Ketiv: `ket` is the WRITTEN form (scroll spelling) when it
+    // differs in CONSONANTS from the read form. The plain mode (no
+    // nikud, no taamim) should render the kethiv -- that's the
+    // text the reader sees on the parchment. The other three modes
+    // keep using `f` / `n` / `t`, which are the voweled qere (the
+    // way the reader's voice actually pronounces the word). See
+    // scripts/patch_kri_ketiv.py for how this field is populated.
+    if (typeof tk.ket === 'string') w.setAttribute('data-ket', tk.ket);
     if (tk.sty) w.setAttribute('data-sty', tk.sty);
     // styLetter names the specific base consonant that the masoretic
     // tradition enlarges / shrinks within this word. We hand it to
@@ -1634,6 +1655,107 @@ function applyKashidaSpacing(linesEl) {
     var availWidth = linesEl.clientWidth;
     if (!availWidth || availWidth < 50) return;
     var rows = linesEl.getElementsByClassName('sLine');
+    // FIRST PASS: find the worst per-line shrink factor needed
+    // (after applying the global per-line letter-spacing compression).
+    // If any line still overflows even at full compression, we shrink
+    // the WHOLE COLUMN uniformly so every row stays at the same
+    // visual size. Per-line font-size variance produced an ugly
+    // "small line / big line" striping pattern which we explicitly
+    // do NOT want.
+    //
+    // The prose cap is 1.5px/letter -- enough to absorb the natural
+    // 1-2 outlier prose lines per column without triggering the
+    // column-wide shrink, yet still imperceptible visually (Hebrew
+    // letter pairs at -1.5px keep their distinct shapes; only at
+    // ~-2.5px do dagesh dots and shva pairs start to merge).
+    var COMPRESS_CAP_GLOBAL = 1.5;
+    var minColScale = 1.0;
+    for (var pi = 0; pi < rows.length; pi++) {
+        var prow = rows[pi];
+        if (!prow.classList) continue;
+        if (prow.classList.contains('sLineEndShort')) continue;
+        if (prow.classList.contains('sLineBlank')) continue;
+        var pSumW = 0;
+        var pLetters = 0;
+        var pIsShirah = prow.classList.contains('sLineShirah');
+        var pKids = prow.children;
+        for (var pj = 0; pj < pKids.length; pj++) {
+            var pCh = pKids[pj];
+            if (!pCh.classList) continue;
+            var isUnit =
+                pCh.classList.contains('word') ||
+                pCh.classList.contains('maqafPair') ||
+                pCh.classList.contains('sSetumah') ||
+                (pIsShirah && pCh.classList.contains('sShirahSeg'));
+            if (!isUnit) continue;
+            pSumW += pCh.offsetWidth;
+            if (pCh.classList.contains('sSetumah')) continue;
+            var pTxt = pCh.textContent || '';
+            var pBase = pTxt.replace(/[\u0591-\u05C7]/g, '')
+                            .replace(/[^\u05D0-\u05EA]/g, '');
+            pLetters += pBase.length;
+        }
+        if (pLetters < 2) continue;
+        // Choose a letter-spacing budget for this line. Shira
+        // tolerates more compression than prose without looking
+        // cramped (its words read as breath-units inside each
+        // segment, and the visible rhythm comes from the wide
+        // gaps BETWEEN segments, not within them). Shira can
+        // therefore self-fit at -2px/letter, which is enough
+        // to avoid forcing a column-wide font shrink even on
+        // the longest line of shirat hayam ("נטית ימינך
+        // תבלעמו ארץ"). Prose stays at -1px/letter so the
+        // dagesh / shuruq / shva combinations don't visibly
+        // collide.
+        var perLineCap = pIsShirah ? 2.0 : COMPRESS_CAP_GLOBAL;
+        // Estimate width after applying maximum letter-spacing
+        // compression. If still over the column, we need a font
+        // shrink. Reserve 6px safety: column padding can swallow
+        // 1-2px of the text edge and we want a couple of pixels
+        // of breathing room for the per-line letter compression
+        // we'll do later (which doesn't always reach the full
+        // per-line cap on dagesh-heavy / shuruq-heavy lines).
+        // Anything more aggressive than that turns the column
+        // shrink into the dominant strategy and undoes the whole
+        // point of the per-line letter-spacing pass.
+        var pCompW = pSumW - perLineCap * pLetters;
+        if (pCompW > availWidth - 6) {
+            var pScale = (availWidth - 6) / pCompW;
+            if (pScale < minColScale) minColScale = pScale;
+        }
+    }
+    if (minColScale < 1.0) {
+        // Add a small extra safety; letter widths don't scale
+        // perfectly linearly with font-size in DrugulinCLM,
+        // especially for the heavier diacritic-stacking glyphs
+        // (cantillation marks above + nikkud below + dagesh
+        // inside). 3% (i.e. ~0.5-1px on a typical column) is
+        // enough to absorb the non-linearity without producing
+        // a visibly-smaller column. The earlier 10% safety
+        // shrunk Beshalach's shirat-hayam column to ~70% of the
+        // regular size even though only one prose line was
+        // overflowing by a couple of pixels -- way too
+        // aggressive a response to a tiny overflow.
+        var safeScale = minColScale * 0.97;
+        if (safeScale < 0.6) safeScale = 0.6;
+        // Apply the shrink to the whole .scrollColumn so all
+        // child rows scale uniformly. (Earlier per-line shrink
+        // produced visually-jarring "tall row / short row"
+        // striping across the column.) The global -webkit-text-
+        // size-adjust:100% rule on `html` keeps Android WebView
+        // from re-inflating our shrunk size back to the original.
+        var sCol = linesEl.parentElement
+            ? linesEl.parentElement.parentElement
+            : null;
+        if (sCol && sCol.classList && sCol.classList.contains('scrollColumn')) {
+            var curFs = parseFloat(getComputedStyle(sCol).fontSize) || 16;
+            var shrunkFs = curFs * safeScale;
+            if (shrunkFs >= 9) {
+                sCol.style.fontSize = shrunkFs.toFixed(1) + 'px';
+            }
+        }
+        if (linesEl.offsetHeight) {/* force reflow */}
+    }
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
         if (!row.classList) continue;
@@ -1641,9 +1763,58 @@ function applyKashidaSpacing(linesEl) {
         // small fixed gap); we leave them alone so the paragraph-end
         // ragged-edge look is preserved.
         if (row.classList.contains('sLineEndShort')) continue;
-        // sLineShirah has segment-based layout -- segments are pushed
-        // to column edges with intentional inter-segment slack.
-        if (row.classList.contains('sLineShirah')) continue;
+        // sLineShirah: segment-based layout, normally lets the gaps
+        // between 1-3 segments absorb the slack. BUT for ~5% outlier
+        // shirah lines (e.g. the busiest brick of Shirat HaYam at the
+        // global p95-sized font), the SUM of segment widths can
+        // exceed availWidth, which under flex-nowrap causes the line
+        // to overflow off the column's start edge (RTL = left). For
+        // those, tighten with negative letter-spacing on each segment
+        // exactly like the prose path -- visually invisible
+        // (sub-pixel per letter) and keeps the segments inside the
+        // column. Same compression cap (1.0px) so letters never
+        // visibly merge.
+        if (row.classList.contains('sLineShirah')) {
+            var segs = row.children;
+            var sumSeg = 0;
+            var letters = 0;
+            for (var sj = 0; sj < segs.length; sj++) {
+                var seg = segs[sj];
+                if (!seg.classList || !seg.classList.contains('sShirahSeg')) continue;
+                sumSeg += seg.offsetWidth;
+                var stxt = seg.textContent || '';
+                var sbase = stxt.replace(/[\u0591-\u05C7]/g, '')
+                                .replace(/[^\u05D0-\u05EA]/g, '');
+                letters += sbase.length;
+            }
+            // Shira lines tolerate more letter compression than
+            // prose without becoming visually cramped: the words
+            // inside a segment already read as a single breath
+            // unit, so squeezing them by an extra ~1px each is
+            // imperceptible and lets the line self-fit without
+            // forcing the column-level font shrink (which would
+            // affect EVERY row in the column, including the prose
+            // and gutter). Cap at 2.0px (vs. prose's 1.5px).
+            if (sumSeg > availWidth - 3 && letters > 1) {
+                var sDeficit = sumSeg - (availWidth - 3);
+                var SHIRAH_CAP = 2.0;
+                var sCompressPx = sDeficit / letters;
+                if (sCompressPx > SHIRAH_CAP) sCompressPx = SHIRAH_CAP;
+                row.style.letterSpacing = '-' + sCompressPx.toFixed(2) + 'px';
+                // Per-line safety net (see prose branch below for
+                // rationale): if even max compression didn't quite
+                // fit, shrink this single row's font-size by a few
+                // percent so the last segment doesn't clip.
+                if (row.scrollWidth > availWidth - 2) {
+                    var sFit = (availWidth - 2) / row.scrollWidth;
+                    if (sFit > 0.85 && sFit < 1) {
+                        var sRowFs = parseFloat(getComputedStyle(row).fontSize) || 16;
+                        row.style.fontSize = (sRowFs * sFit * 0.99).toFixed(1) + 'px';
+                    }
+                }
+            }
+            continue;
+        }
         if (row.classList.contains('sLineBlank')) continue;
         // Sum widths of direct flex children (.word, .maqafPair,
         // .sSetumah) and count base Hebrew letters within them.
@@ -1684,23 +1855,65 @@ function applyKashidaSpacing(linesEl) {
             // the letters just enough to make it fit. This is a
             // sub-pixel adjustment per letter -- visually invisible,
             // unlike per-line font-size shrinking which produces
-            // jarring "small line / big line" alternation. Cap the
-            // compression at -1.0px so letters never visibly merge.
+            // jarring "small line / big line" alternation.
+            //
+            // First-pass cap is -1.0px per letter; if even that
+            // can't fit, we fall back to shrinking the line's
+            // font-size (per-line) by the small fraction needed to
+            // fit. We prefer letter-spacing because it's invisible,
+            // but font-size shrink is the only fully reliable
+            // last-resort: a `sLineKashidaCap` flex-start fallback
+            // looks fine on prose lines that are slightly short on
+            // slack, but it actively *clips* the last word when the
+            // deficit is bigger than what compression can absorb
+            // (which happens on long-line columns like Beshalach's
+            // pre-Shirat-HaYam prose at the global p95 font).
             var deficit = -slack;
-            var COMPRESS_CAP = 1.0;
+            // Match the column-level pre-pass cap (1.5px) so a
+            // line that the pre-pass decided didn't need a column
+            // shrink can actually fit at this same compression
+            // budget. Without matching, the per-line cap (was
+            // 1.0px) was tighter than what the pre-pass assumed
+            // (1.5px), so 1-2 outlier lines per column would
+            // hit max compression here and STILL overflow,
+            // forcing visible clipping.
+            var COMPRESS_CAP = 1.5;
             var compressPx = deficit / totalLetters;
-            if (compressPx > COMPRESS_CAP) compressPx = COMPRESS_CAP;
-            row.style.letterSpacing = '-' + compressPx.toFixed(2) + 'px';
-            // If even max compression can't fit, fall back to
-            // flex-start so the residual overflow falls off the
-            // line's start edge (right side in RTL: clipped, but
-            // the *end* of the line stays inside the column where
-            // we read it, instead of the last word's tail being
-            // chopped off the left).
-            if (compressPx >= COMPRESS_CAP) {
-                row.classList.add('sLineKashidaCap');
-            } else {
+            if (compressPx <= COMPRESS_CAP) {
+                row.style.letterSpacing = '-' + compressPx.toFixed(2) + 'px';
                 row.classList.add('sLineKashidaTight');
+                // Final safety net: if even the calculated
+                // compression couldn't quite make this single line
+                // fit (e.g. because letter-spacing widths don't
+                // scale linearly with the column's exact pixel
+                // metrics, or because the trailing letter's right
+                // bearing pushed past the column edge), shrink
+                // JUST this row's font-size by a small amount.
+                // This is per-line so it doesn't affect any other
+                // row in the column, and the visual size delta is
+                // 1-2% which is far below perceptual threshold.
+                if (row.scrollWidth > availWidth - 2) {
+                    var fitScale = (availWidth - 2) / row.scrollWidth;
+                    if (fitScale > 0.85 && fitScale < 1) {
+                        var rowFsPx = parseFloat(getComputedStyle(row).fontSize) || 16;
+                        row.style.fontSize = (rowFsPx * fitScale * 0.99).toFixed(1) + 'px';
+                    }
+                }
+                continue;
+            }
+            // Apply max compression. The column-level pre-shrink
+            // (above) has already shrunk the whole column's font-
+            // size if needed so this line still won't visibly
+            // overflow after letter-spacing compression.
+            row.style.letterSpacing = '-' + COMPRESS_CAP.toFixed(2) + 'px';
+            row.classList.add('sLineKashidaTight');
+            // Same per-line safety net as above (see comment).
+            if (row.scrollWidth > availWidth - 2) {
+                var fitScale2 = (availWidth - 2) / row.scrollWidth;
+                if (fitScale2 > 0.85 && fitScale2 < 1) {
+                    var rowFsPx2 = parseFloat(getComputedStyle(row).fontSize) || 16;
+                    row.style.fontSize = (rowFsPx2 * fitScale2 * 0.99).toFixed(1) + 'px';
+                }
             }
             continue;
         }
@@ -1758,6 +1971,59 @@ function applyKashidaSpacing(linesEl) {
         if (lsPx > 0.05) {
             row.style.letterSpacing = lsPx.toFixed(2) + 'px';
         }
+    }
+
+    // FINAL SAFETY NET: walk every row in the column and shrink the
+    // font of any row whose actual rendered content STILL overshoots
+    // the column edge after all the kashida / column-shrink logic
+    // above. We use getBoundingClientRect() on the row's first and
+    // last *visual* word (in RTL: rightmost child = first word,
+    // leftmost child = last word) and compare their span against the
+    // column's content-box. This catches the residual ~1-3% of lines
+    // where letter-spacing widths don't quite match the linear
+    // estimate we used in the pre-pass (DrugulinCLM glyphs with
+    // heavy diacritic stacks read a touch wider in practice than
+    // their pre-letter-spacing offsetWidth would suggest).
+    var lineRect0 = linesEl.getBoundingClientRect();
+    var leftEdge = lineRect0.left + 1;       // 1px tolerance
+    var rightEdge = lineRect0.right - 1;
+    for (var fi = 0; fi < rows.length; fi++) {
+        var frow = rows[fi];
+        if (!frow.classList) continue;
+        if (frow.classList.contains('sLineBlank')) continue;
+        // Find leftmost and rightmost rendered child rect.
+        var fkids = frow.children;
+        if (!fkids.length) continue;
+        var minLeft = Infinity, maxRight = -Infinity;
+        for (var fk = 0; fk < fkids.length; fk++) {
+            var fch = fkids[fk];
+            if (!fch.getBoundingClientRect) continue;
+            // Only count visible flex units (skip invisible spacers).
+            if (fch.offsetWidth <= 0) continue;
+            var fr = fch.getBoundingClientRect();
+            if (fr.left < minLeft) minLeft = fr.left;
+            if (fr.right > maxRight) maxRight = fr.right;
+        }
+        if (minLeft === Infinity) continue;
+        // Overflow if either the leftmost letter sticks out past the
+        // column's left edge (most common in RTL: last visual word
+        // overshoots) or the rightmost letter past the right edge.
+        var overL = leftEdge - minLeft;
+        var overR = maxRight - rightEdge;
+        var over = Math.max(overL, overR);
+        if (over <= 0) continue;
+        var contentW = maxRight - minLeft;
+        if (contentW <= 0) continue;
+        var fitScale = (contentW - over) / contentW;
+        // Already at a tiny size? Bail rather than make it
+        // unreadable.
+        if (fitScale < 0.80 || fitScale >= 1) continue;
+        var curRowFs = parseFloat(getComputedStyle(frow).fontSize) || 16;
+        // Apply scale with a small extra safety so we don't have to
+        // re-measure-and-re-shrink in a loop.
+        var newRowFs = curRowFs * fitScale * 0.985;
+        if (newRowFs < 9) newRowFs = 9;
+        frow.style.fontSize = newRowFs.toFixed(1) + 'px';
     }
 }
 

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#654321</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Pre-Flutter window background. EXACTLY matches the
+         `colorBg` CSS variable in stylesTikun.css (the body
+         background of indexIntro.html and every reading page) so
+         the Android 12+ system splash, the LaunchTheme window,
+         the NormalTheme window, and the HTML splash all share one
+         identical background colour. Result: no perceptible page
+         transition during boot. The name "parchment" is historical;
+         the exact hex must stay in sync with `colorBg` in CSS. -->
+    <color name="parchment">#FBF9F3</color>
 </resources>
